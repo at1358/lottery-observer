@@ -1,0 +1,16 @@
+// Test runner preload. No production code path or live robot is involved.
+import {appendFileSync,readFileSync} from 'node:fs';
+const fetchOriginal=globalThis.fetch;
+if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
+globalThis.fetch=async(input,options)=>{
+ const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-articles.example'){
+  const file=url.pathname==='/shell.html'?'encrypted-shell-0.html':url.pathname==='/enc/articles/086.json'?'encrypted-payload-0.json':null;
+  if(!file)return new Response('Not found',{status:404});return new Response(readFileSync(new URL(file,import.meta.url)),{headers:{'Content-Type':file.endsWith('.json')?'application/json':'text/html; charset=utf-8'}});
+ }
+ if(url.hostname!=='qyapi.weixin.qq.com')return fetchOriginal(input,options);
+ if(!['qa-only-robot-key-001','qa-only-robot-failure'].includes(url.searchParams.get('key')))throw Error('Only fake robot keys are allowed in QA');
+ appendFileSync(process.env.QA_WECOM_LOG,JSON.stringify({body:JSON.parse(options.body),at:new Date().toISOString()})+'\n');
+ await new Promise(resolve=>setTimeout(resolve,80));
+ return Response.json(url.searchParams.get('key')==='qa-only-robot-failure'?{errcode:93000,errmsg:'test fixture rejected'}:{errcode:0,errmsg:'ok'});
+};

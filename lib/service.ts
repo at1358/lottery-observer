@@ -7,6 +7,7 @@ import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs
 import {folders as listFolders,ensureFolder,trashList} from './manage';
 import {rulesWithReference,validateReferenceYear} from './number-reference.mjs';
 import {collectReference} from './reference-collector.mjs';
+import {sendLatestDraw} from './wecom';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -80,10 +81,11 @@ export async function saveSource(s:any){
  if(previous?.deleted_batch)throw Error('该来源已删除，请先在回收站恢复');
  const folderId=s.folder_id===undefined?(previous?previous.folder_id:await ensureFolder(s.kind)):s.folder_id||null;
  if(folderId&&!(await list('SELECT id FROM folders WHERE id=? AND deleted_batch IS NULL',folderId)).length)throw Error('选择的文件夹不存在');
- const needsVerify=s.url&&sample&&(!previous||previous.url!==s.url||previous.sample!==sample||previous.kind!==s.kind||previous.selector!==s.selector||previous.error);
+ const collectNow=s.collectNow===undefined?!previous:s.collectNow===true;
+ const needsVerify=s.url&&sample&&(collectNow||!previous||previous.url!==s.url||previous.sample!==sample||previous.kind!==s.kind||previous.selector!==s.selector||previous.error);
  let preview:any=null,warning:string|null=null;
  if(needsVerify){try{preview=await previewSource({...s,sample,text:sample,content_url:previous?.url===s.url?s.content_url||previous.content_url:''});}catch(e:any){warning=e.message;}}
- const source={...s,id:sourceId,year:+s.year,kind:preview?.kind||s.kind,selector:preview?.selector||s.selector||'auto',sample,content_url:preview?.url||(previous?.url===s.url?previous.content_url:'')||'',schedule_mode:s.schedule_mode||'inherit',daily_time:s.daily_time||'16:30',enabled:warning?0:s.enabled?1:0};
+ const source={...s,id:sourceId,year:+s.year,kind:preview?.kind||s.kind,selector:preview?.selector||s.selector||'auto',sample,content_url:preview?.url||(previous?.url===s.url?previous.content_url:'')||'',schedule_mode:s.schedule_mode||'inherit',daily_time:s.daily_time||'16:30',enabled:warning?0:(s.enabled===undefined?previous?!!previous.enabled:true:!!s.enabled)?1:0};
  const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
  const scheduleChanged=!previous||previous.schedule_mode!==source.schedule_mode||previous.daily_time!==source.daily_time||previous.interval!==+s.interval||!previous.enabled&&source.enabled;
  const nextRun=scheduleChanged||!previous?.next_run?nextScheduledRun(effectiveSchedule(source,defaults)):previous.next_run;
@@ -91,7 +93,7 @@ export async function saveSource(s:any){
  await run('UPDATE sources SET cutoff_time=?,tracking_from=? WHERE id=?',s.cutoff_time||previous?.cutoff_time||'21:35',source.enabled?(previous?.enabled&&previous.tracking_from||now()):previous?.tracking_from||null,sourceId);
  await run('UPDATE sources SET folder_id=? WHERE id=?',folderId,sourceId);
  let inserted=0;
- if(preview&&s.collectNow){const result=await ingest(source,preview.rows);inserted=result.inserted;await storeSnapshot(sourceId,preview.html);await run('UPDATE sources SET last_run=? WHERE id=?',now(),sourceId);}
+ if(preview&&collectNow){const result=await ingest(source,preview.rows);inserted=result.inserted;await storeSnapshot(sourceId,preview.html);await run('UPDATE sources SET last_run=? WHERE id=?',now(),sourceId);}
  await log(s.name,warning?'warning':'success',warning?'配置已保存，自动采集未启用：'+warning:'栏目配置已保存；下次计划 '+plannedLabel(nextRun),inserted,sourceId);
  return {id:sourceId,inserted,selector:source.selector,kind:source.kind,nextRun,estimatedRun:estimatedExecution(nextRun,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'),warning,enabled:!!source.enabled};
 }
@@ -220,6 +222,7 @@ export async function scheduledDrawUpdate(){
 export async function tick(){
  const stamp=now();let success=0,failed=0;
  const drawResult:any=await scheduledDrawUpdate();if(!drawResult.skipped){success+=drawResult.errors.length?0:1;failed+=drawResult.errors.length;}
+ const pushResult:any=await sendLatestDraw();if(pushResult.sent)success++;if(pushResult.failed)failed++;
  await finalizeCollections();
  const collectionSchedule=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
  const due=collectionSchedule.enabled===false?[]:await list('SELECT * FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?) ORDER BY next_run LIMIT 8',stamp);
@@ -234,7 +237,18 @@ export async function tick(){
  const pending=collectionSchedule.enabled===false?0:remaining.count;
  await putSetting('scheduler',{lastRun:now(),success,failed,remaining:pending});
  await log('定时检查',failed?'error':'success',collectionSchedule.enabled===false?'全站自动采集已暂停；开奖同步按原设置运行':`本批检查完成：成功 ${success}，失败 ${failed}，剩余到期栏目 ${pending}`,success);
- return {success,failed,remaining:pending};
+ return {success,failed,remaining:pending,push:pushResult};
+}
+export async function recheckResults(input:any={}){
+ const query=new URLSearchParams();let name='全部采集资料';
+ if(input.source){const [source]=await list('SELECT name FROM sources WHERE id=? AND deleted_batch IS NULL',input.source);if(!source)throw Error('找不到该采集栏目');query.set('source',input.source);name=source.name;}
+ if(input.year!==undefined&&input.year!==''){const year=validateReferenceYear(input.year);query.set('year',String(year));name+=' · '+year+' 年';}
+ // The same evaluation path powers the table, ranking and explicit recheck.
+ // It evaluates all matching rows before pagination and never trusts a page's 准/中 label.
+ const result=await state(query),report={...result.stats,name,source:input.source||null,year:query.get('year')||null,checkedAt:now()};
+ await putSetting('lastVerification',report);
+ await log('开奖复核','success',`${name}：共 ${report.total} 条，正确 ${report.win}，错误 ${report.loss}，待开奖 ${report.pending}，待复核 ${report.review}，采集失败 ${report.collectionFailed}`,report.settled,input.source||null);
+ return report;
 }
 export async function state(query:URLSearchParams){
  await finalizeCollections();

@@ -16,6 +16,6 @@ for(let i=0;i<2;i++){
  const state=await api('state?source='+source.id);assert.equal(state.count,i===0?17:77);
  if(i===0){const row=state.rows.find(r=>r.issue==='303');assert.equal(Object.keys(row.parsed.sourceRules.segments).length,49);assert.equal(row.parsed.sourceRules.segments[17],3);assert.ok(!state.rows.find(r=>r.issue==='304').raw.includes('1段--'));
   await api('revise',{id:row.id,raw:'303期绝杀一段【6段】',kind:'杀段'});const revised=(await api('state?source='+source.id)).rows.find(r=>r.issue==='303');assert.equal(revised.parsed.sourceRules.segments[17],3);assert.equal(revised.verdict.status,'win');
- }else{const first=(await api('state?source='+source.id+'&from=224&to=224')).rows[0];assert.deepEqual(first.parsed.values,[1,5,25,36,49]);assert.match(first.raw,/\n【01\.05\.25\.36\.49】/);}
+ }else{const first=(await api('state?source='+source.id+'&from=224&to=224')).rows[0];assert.deepEqual(first.parsed.values,[1,5,25,36,49]);assert.match(first.raw,/\n【01\.05\.25\.36\.49】/);assert.ok(state.rows.find(r=>r.issue==='304').raw.length<120);}
 }
 console.log('PASS: 17 segment and 77 five-number records, retained source rules, independent settlement, manual revision and repeat collection without duplicates.');

@@ -4,6 +4,7 @@ import * as account from '../../../lib/accounts';
 import * as manage from '../../../lib/manage';
 import {exportBackup} from '../../../lib/backup';
 import {readNumberReference,saveNumberReference} from '../../../lib/reference-service';
+import {pushState,savePush,testPush,sendLatestDraw} from '../../../lib/wecom';
 export const dynamic='force-dynamic';
 async function handle(request:Request,context:any){
  const url=new URL(request.url);const path=url.pathname.replace(/^\/api\//,'');
@@ -12,9 +13,10 @@ async function handle(request:Request,context:any){
   // All browser data and mutations additionally require visitor identity.
   const publicAuth=['auth/login','auth/bootstrap','auth/logout'];
   if(['tick','service'].includes(path))await account.authorizeService(request);
-  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup'||path.startsWith('number-reference')&&request.method!=='GET');
+  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup'||(path.startsWith('number-reference')||path.startsWith('wecom/'))&&request.method!=='GET');
   if(request.method==='GET'){
    if(path==='state')return Response.json(await svc.state(url.searchParams),{headers:{'Cache-Control':'no-store'}});
+   if(path==='wecom')return Response.json(await pushState(),{headers:{'Cache-Control':'no-store'}});
    if(path==='history')return Response.json(await svc.history(url.searchParams.get('id')||''));
    if(path==='users')return Response.json(await account.users());
    if(path==='number-reference')return Response.json(await readNumberReference(url.searchParams.get('year')),{headers:{'Cache-Control':'no-store'}});
@@ -46,6 +48,10 @@ async function handle(request:Request,context:any){
    case 'trash/restore':result=await manage.restore(body.id);break;
    case 'preview':{const p=await svc.previewSource(body);result={kind:p.kind,selector:p.selector,contentUrl:p.url,followedPages:p.followedPages,rows:p.rows.slice(0,10),total:p.rows.length};break;}
    case 'source':result=await svc.saveSource(body);break;
+   case 'recheck':result=await svc.recheckResults(body);break;
+   case 'wecom/save':result=await savePush(body);break;
+   case 'wecom/test':result=await testPush();break;
+   case 'wecom/send':result=await sendLatestDraw(true);break;
    case 'source-toggle':result=await svc.toggleSource(body.id,body.enabled===true);break;
    case 'crawl':result=await svc.crawl(body.id,body.text);break;
    case 'draw':result=await svc.saveDraw(body);break;

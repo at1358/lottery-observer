@@ -19,7 +19,7 @@ test('both reported encrypted article formats resolve only their declared same-o
   const rows=splitPeriods(r.text);assert.equal(rows.length,i===0?17:77);assert.equal(rows[0].issue,i===0?'287':'224');assert.equal(rows.at(-1).issue,'304');assert.equal(r.kind,i===0?'杀段':'杀号码');
   assert.ok(rows.every(row=>parsePrediction(row.raw,r.kind,names[i]).valid));
   if(i===0){assert.equal(Object.keys(r.sourceRules.segments).length,49);assert.equal(r.sourceRules.segments[17],3);assert.equal(r.sourceRules.segments[45],7);assert.ok(!rows.at(-1).raw.includes('1段--'));}
-  else{assert.deepEqual(parsePrediction(rows[0].raw,r.kind,names[i]).values,[1,5,25,36,49]);assert.ok(rows[0].raw.includes('\n【01.05.25.36.49】'));}
+  else{assert.deepEqual(parsePrediction(rows[0].raw,r.kind,names[i]).values,[1,5,25,36,49]);assert.ok(rows[0].raw.includes('\n【01.05.25.36.49】'));assert.ok(rows.at(-1).raw.length<120);assert.ok(!rows.at(-1).raw.includes('天下我有'));}
   const again=await resolveModule({url:r.url,text:shell(i)},{selector:r.selector,sample:'001期不存在的样本',name:names[i],kind:r.kind},async url=>({url,text:payload(i)}));assert.equal(splitPeriods(again.text).length,rows.length);
  }
 });
