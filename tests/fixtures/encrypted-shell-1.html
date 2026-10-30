@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>热门精选</title>
+
+  <!-- 加密库 -->
+  <script src="js/crypto-js.min.js"></script>
+
+  <style>
+    #content {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* 非 wz 页面：仅控制容器，不影响内部 */
+    #content.left {
+      text-align: left;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="content">⏳ 加载中...</div>
+
+  <script>
+    const key = "MySecretKey_ChangeMe";
+
+    // =========================
+    // 🔒 防直链
+    // =========================
+    if (!document.referrer) {
+      document.body.innerHTML = "❌  感谢您的访问";
+      throw new Error("Blocked direct access");
+    }
+
+    // =========================
+    // 🔧 获取参数
+    // =========================
+    function getParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+
+    // =========================
+    // 🔒 防非法路径
+    // =========================
+    function safePage(page) {
+      return page.replace(/[^a-zA-Z0-9/_-]/g, "");
+    }
+
+    // =========================
+    // 🔥 修复 document.write
+    // =========================
+    function runScripts(container) {
+      const oldWrite = document.write;
+
+      document.write = function (html) {
+        container.insertAdjacentHTML("beforeend", html);
+      };
+
+      const scripts = container.querySelectorAll("script");
+
+      scripts.forEach(oldScript => {
+        const newScript = document.createElement("script");
+
+        if (oldScript.src) {
+          newScript.src = oldScript.src;
+          newScript.async = false;
+        } else {
+          newScript.textContent = oldScript.textContent;
+        }
+
+        document.body.appendChild(newScript);
+        oldScript.remove();
+      });
+
+      document.write = oldWrite;
+    }
+
+    // =========================
+    // 🚀 主逻辑
+    // =========================
+    const rawPage = getParam("page") || "001";
+    const page = safePage(rawPage);
+    const url = `enc/${page}.json`;
+
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error("文件不存在");
+        return res.json();
+      })
+      .then(json => {
+        const bytes = CryptoJS.AES.decrypt(json.data, key);
+        const original = bytes.toString(CryptoJS.enc.Utf8);
+
+        if (!original) {
+          throw new Error("解密失败（key不一致？）");
+        }
+
+        const container = document.getElementById("content");
+
+        // 👇 防 document.write（二次保险）
+        const safeHTML = original.replace(
+          /document\.write\s*\(/gi,
+          "container.insertAdjacentHTML('beforeend',("
+        );
+
+        container.innerHTML = safeHTML;
+
+        runScripts(container);
+
+        document.title = "加载完成";
+      })
+      .catch(err => {
+        document.getElementById("content").innerHTML =
+          "❌ 加载失败<br>" +
+          "路径: " + url + "<br>" +
+          "原因: " + err.message;
+      });
+  </script>
+
+</body>
+</html>

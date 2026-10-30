@@ -92,6 +92,14 @@ npm run dev -- --port 5173
 
 验证：`node --test tests/number-reference.test.mjs tests/domain.test.mjs`。隔离的独立部署测试服务运行 `tests/management-workflow.mjs` 后，可执行 `tests/reference-workflow.mjs` 检查权限、并发、年份隔离、核验和备份。
 
+## 动态正文与分段资料
+
+支持 `shell.html?page=articles/…` 这类通过 CryptoJS/OpenSSL 格式加载正文的资料页。识别页面公开声明的同站接口和加载配置，读取正文后再定位栏目，不执行原站脚本。保存的正文位置保留栏目网址，后续定时采集仍可读取更新后的内容。
+
+样本核对限定在同一期推荐内容，避免误匹配其他期数或页尾说明；“稳杀五码”等中文数量会检查是否为完整的五个号码。来源明确列出完整、互不重复的 1–7 段与 49 号码对照时，随当批资料保存该分段规则并用于核验。说明表单独保留在网页快照，不混入最后一期原文；未提供完整分段时保持待复核。
+
+回归测试：`node --test tests/encrypted-shell.test.mjs`。隔离服务运行 `tests/management-workflow.mjs` 后，可执行 `tests/encrypted-source-workflow.mjs` 检查入库规则、重复采集和核验。接口测试可用 `QA_BASE_URL` 指定本机 5xxx 测试端口。
+
 ## 开源参考
 
 前端使用 React，后端使用 Vinext 与 Cloudflare Workers，数据库使用 D1 / SQLite。任务管理与运行日志参考 [Crawlab](https://github.com/crawlab-team/crawlab)；去重、失败处理与节流设计参考 [Scrapy](https://github.com/scrapy/scrapy) 及 [AutoThrottle](https://docs.scrapy.org/en/latest/topics/autothrottle.html)。实际 HTML 解析使用 [Cheerio](https://github.com/cheeriojs/cheerio)。也对照了已归档的 [pyspider](https://github.com/binux/pyspider)，未将其作为依赖。

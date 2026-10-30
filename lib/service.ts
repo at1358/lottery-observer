@@ -68,7 +68,7 @@ export async function previewSource(s:any){
  catch(e){if(s.content_url&&s.content_url!==s.url)data=await sourceDownload(s.url);else throw e;}
  const extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint},sourceDownload);
  const text=extracted.text;const kind=extracted.kind;
- const rows=splitPeriods(text).map((r:any)=>({...r,kind,parsed:parsePrediction(r.raw,kind,s.name)}));
+ const rows=splitPeriods(text).map((r:any)=>({...r,kind,parsed:{...parsePrediction(r.raw,kind,s.name),...(extracted.sourceRules?{sourceRules:extracted.sourceRules}:{})}}));
  if(!rows.length)throw Error('未识别到“001期”这样的期数记录。请调整内容选择器，或粘贴网页正文；动态渲染页面需要提供正文接口。');
  const keys=new Set();for(const r of rows){const key=(r.explicitYear||r.yearOffset)+'-'+r.issue;if(keys.has(key))throw Error('选中的内容包含重复期数，可能混入多个资料栏目。请把正文选择器缩小到单个作者的单项资料。');keys.add(key);}
  return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,followedPages:extracted.visited};
@@ -119,7 +119,7 @@ export async function ingest(source:any,rows:any[],historical=false){
   if(+r.issue<1||+r.issue>366)continue;
   const year=r.explicitYear||source.year+(r.yearOffset||0),key=year+'-'+r.issue,found=existing.get(key);
   if(found){if(found.raw!==r.raw){commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM revisions WHERE prediction_id=? AND raw=?)',id(),found.id,r.raw,stamp,found.id,r.raw));commands.push(stmt('UPDATE predictions SET changed=changed|1,last_seen=? WHERE id=?',stamp,found.id));changed++;}else commands.push(stmt('UPDATE predictions SET last_seen=? WHERE id=?',stamp,found.id));continue;}
-  const kind=r.kind||source.kind;const p=parsePrediction(r.raw,kind,source.name);
+  const kind=r.kind||source.kind;const p={...parsePrediction(r.raw,kind,source.name),...(r.parsed?.sourceRules?{sourceRules:r.parsed.sourceRules}:{})};
   const predictionId=id(),deletedBatch=hiddenPeriods.get(key)||null;commands.push(stmt('INSERT OR IGNORE INTO predictions(id,source_id,year,issue,kind,raw,parsed,first_seen,last_seen,historical,deleted_batch) VALUES(?,?,?,?,?,?,?,?,?,?,?)',predictionId,source.id,year,r.issue,kind,r.raw,JSON.stringify(p),stamp,stamp,historical?1:0,deletedBatch));existing.set(key,{raw:r.raw,id:predictionId});if(!deletedBatch)inserted++;
  }
  await batches(commands);return {inserted,changed};
@@ -263,7 +263,7 @@ export async function revise(predictionId:string,raw:string,kind:string){
  await finalizeCollections();
  const [p]=await list('SELECT p.*,s.name FROM predictions p JOIN sources s ON p.source_id=s.id WHERE p.id=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL',predictionId);if(!p)throw Error('记录不存在');
  if(!KINDS.includes(kind)||kind==='自动识别')throw Error('请指定资料类型');
- const parsed=parsePrediction(raw,kind,p.name);if(!parsed.valid)throw Error(parsed.warnings.join('；'));
+ const previousParsed=JSON.parse(p.parsed),parsed={...parsePrediction(raw,kind,p.name),...(previousParsed.sourceRules?{sourceRules:previousParsed.sourceRules}:{})};if(!parsed.valid)throw Error(parsed.warnings.join('；'));
  // Correct the interpretation, preserve the collected original and record the operator's input.
  await db().batch([stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)',id(),p.id,'[人工解析修正]\n'+raw,now()),stmt('UPDATE predictions SET parsed=?,kind=?,historical=1,changed=changed|2 WHERE id=?',JSON.stringify(parsed),kind,p.id)]);return {parsed};
 }

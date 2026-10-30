@@ -1,6 +1,7 @@
 // Runs only against the standalone local test server, never a published Site.
 import assert from 'node:assert/strict';
-const base='http://127.0.0.1:5273';
+const base=process.env.QA_BASE_URL||'http://127.0.0.1:5273';
+if(!/^http:\/\/(?:127\.0\.0\.1|localhost):5\d{3}$/.test(base))throw Error('QA server must use a local test port');
 let cookie='';
 async function api(path,data,expected=200,auth=cookie,extra={}){const r=await fetch(base+'/api/'+path,{headers:{cookie:auth,'Content-Type':'application/json',...extra},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})});let value;try{value=await r.json();}catch{throw Error(`Unexpected response for ${path}: ${r.status}`);}assert.equal(r.status,expected,`${path}: ${JSON.stringify(value)}`);if(r.headers.get('set-cookie')&&auth===cookie)cookie=r.headers.get('set-cookie').split(';')[0];return value;}
 const admin={username:'qa-admin',name:'验收管理员',password:'Local-only-admin-Password-9276',bootstrapToken:'local-test-bootstrap-only'};

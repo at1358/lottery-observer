@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>内容加载中...</title>
+
+  <script src="js/crypto-js.min.js"></script>
+</head>
+
+<body>
+
+<div id="content">加载中...</div>
+
+<script>
+const key = "MySecretKey_ChangeMe";
+
+// =========================
+// 🔒 防直链
+// =========================
+if (!document.referrer) {
+  document.body.innerHTML = "❌ 感谢访问";
+  throw new Error("Blocked");
+}
+
+// =========================
+// 🔧 获取参数
+// =========================
+function getParam(name) {
+  const url = new URL(window.location.href);
+  return url.searchParams.get(name);
+}
+
+// =========================
+// 🔒 防非法路径
+// =========================
+function safePage(page) {
+  return page.replace(/[^a-zA-Z0-9/_-]/g, "");
+}
+
+// =========================
+// 🚫 禁止 document.write
+// =========================
+document.write = function () {
+  console.warn("已拦截 document.write");
+};
+
+// =========================
+// 📁 自动识别目录
+// =========================
+function getDir(page) {
+  return page.split("/")[0] || "";
+}
+
+// =========================
+// 📢 广告（仅 articles）
+// =========================
+function loadAd() {
+  const adBox = document.createElement("div");
+  adBox.id = "ad-box";
+  document.body.appendChild(adBox);
+
+  const script = document.createElement("script");
+  script.src = "../js/tuguanggao2482.js?v=" + Math.random();
+
+  script.onload = function () {
+    try {
+      if (typeof tuguanggao2482 !== "undefined") {
+        adBox.innerHTML = tuguanggao2482;
+      }
+    } catch (e) {
+      console.log("广告错误", e);
+    }
+  };
+
+  script.onerror = function () {
+    console.log("广告加载失败");
+  };
+
+  document.body.appendChild(script);
+}
+
+// =========================
+// 🔥 顺序执行 script
+// =========================
+function runScripts(container, callback) {
+  const scripts = Array.from(container.querySelectorAll("script"));
+
+  function loadNext(i) {
+    if (i >= scripts.length) {
+      callback && callback(); // 👉 执行完再做后续（关键）
+      return;
+    }
+
+    const oldScript = scripts[i];
+    const newScript = document.createElement("script");
+
+    if (oldScript.src) {
+      newScript.src = oldScript.src;
+      newScript.onload = () => loadNext(i + 1);
+      newScript.onerror = () => loadNext(i + 1);
+      document.body.appendChild(newScript);
+    } else {
+      try {
+        newScript.textContent = oldScript.textContent;
+        document.body.appendChild(newScript);
+      } catch (e) {
+        console.log("内联JS错误", e);
+      }
+      loadNext(i + 1);
+    }
+
+    oldScript.remove();
+  }
+
+  loadNext(0);
+}
+
+// =========================
+// 🚀 主逻辑
+// =========================
+const rawPage = getParam("page") || "articles/001";
+const page = safePage(rawPage);
+const dir = getDir(page);
+
+const url = `enc/${page}.json`;
+
+fetch(url)
+  .then(res => {
+    if (!res.ok) throw new Error("文件不存在");
+    return res.json();
+  })
+  .then(json => {
+    const bytes = CryptoJS.AES.decrypt(json.data, key);
+    const original = bytes.toString(CryptoJS.enc.Utf8);
+
+    if (!original) {
+      throw new Error("解密失败");
+    }
+
+    const container = document.getElementById("content");
+    container.innerHTML = original;
+
+    // 🔥 执行原页面JS → 完成后再判断广告
+    runScripts(container, function () {
+
+      // ✅ 自动判断目录（核心）
+      if (dir === "articles") {
+        loadAd();
+      }
+
+    });
+
+    document.title = "加载完成";
+  })
+  .catch(err => {
+    document.getElementById("content").innerHTML =
+      "❌ 加载失败<br>" +
+      "路径: " + url + "<br>" +
+      "原因: " + err.message;
+  });
+
+</script>
+</body>
+</html>

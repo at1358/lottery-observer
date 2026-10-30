@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {parseReferencePage} from '../lib/reference-collector.mjs';
-const base='http://127.0.0.1:5273';let cookie='';
+const base=process.env.QA_BASE_URL||'http://127.0.0.1:5273';let cookie='';
+if(!/^http:\/\/(?:127\.0\.0\.1|localhost):5\d{3}$/.test(base))throw Error('QA server must use a local test port');
 async function api(path,data,expected=200){const r=await fetch(base+'/api/'+path,{headers:{cookie,'Content-Type':'application/json'},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})});const value=await r.json();assert.equal(r.status,expected,path+': '+JSON.stringify(value));if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return value;}
 await api('number-reference?year=2026',undefined,401);
 await api('auth/login',{username:'qa-admin',password:'Local-only-admin-Password-9276'});
