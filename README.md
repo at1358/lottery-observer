@@ -82,6 +82,16 @@ npm run dev -- --port 5173
 
 检查命令：`node --test tests/domain.test.mjs tests/extract.test.mjs tests/resolver.test.mjs tests/schedule.test.mjs` 和 `node node_modules/typescript/bin/tsc --noEmit`。`node tests/integration.mjs` 对正在运行的本地服务检查身份保护、来源校验、核验、去重、修改追踪和筛选，会留下标有「验收来源」的本地测试数据。`node tests/source-workflow.mjs` 使用用户报告的公开网页验证正文追踪、杀半头、配置保留、暂停恢复和每日计划继承，仅在本地数据库写入测试记录。
 
+## 年度号码对照
+
+工作台的「号码对照」菜单（`/?view=reference`）支持按年份管理十二生肖、五行、波色、合数单双及自定义生肖属性。管理员可填写网址，先采集预览再保存，也可通过表单手动维护。采集器跟进同站嵌入页和字面量 iframe 引用；对于已识别的年度对照模板，读取经过校验的数据数组并按所选年份计算，不执行来源网站的 JavaScript。静态页面或固定配置的年份与所选年份不一致时拒绝导入。
+
+「49 号码明细」提供生肖、五行、波色、头数、尾数、合数、合数单双和生肖属性查询。头数、尾数与合数直接按号码计算；手动资料可分步补齐，缺失项保持为空，重复号码、越界和矛盾合数分组不能保存。支持同年份并发编辑冲突检测。
+
+启用后，仅补充同年份资料核验所缺的属性，开奖源提供的生肖、五行优先。对照表保存在现有 `settings` 表，自动包含在迁移备份中，无需新增数据库迁移。只读用户和操作员可以查看，仅管理员可采集与修改。新资料类型支持波色、合数、合数单双和生肖属性。
+
+验证：`node --test tests/number-reference.test.mjs tests/domain.test.mjs`。隔离的独立部署测试服务运行 `tests/management-workflow.mjs` 后，可执行 `tests/reference-workflow.mjs` 检查权限、并发、年份隔离、核验和备份。
+
 ## 开源参考
 
 前端使用 React，后端使用 Vinext 与 Cloudflare Workers，数据库使用 D1 / SQLite。任务管理与运行日志参考 [Crawlab](https://github.com/crawlab-team/crawlab)；去重、失败处理与节流设计参考 [Scrapy](https://github.com/scrapy/scrapy) 及 [AutoThrottle](https://docs.scrapy.org/en/latest/topics/autothrottle.html)。实际 HTML 解析使用 [Cheerio](https://github.com/cheeriojs/cheerio)。也对照了已归档的 [pyspider](https://github.com/binux/pyspider)，未将其作为依赖。

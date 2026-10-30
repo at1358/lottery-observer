@@ -3,6 +3,7 @@ import * as svc from '../../../lib/service';
 import * as account from '../../../lib/accounts';
 import * as manage from '../../../lib/manage';
 import {exportBackup} from '../../../lib/backup';
+import {readNumberReference,saveNumberReference} from '../../../lib/reference-service';
 export const dynamic='force-dynamic';
 async function handle(request:Request,context:any){
  const url=new URL(request.url);const path=url.pathname.replace(/^\/api\//,'');
@@ -11,11 +12,12 @@ async function handle(request:Request,context:any){
   // All browser data and mutations additionally require visitor identity.
   const publicAuth=['auth/login','auth/bootstrap','auth/logout'];
   if(['tick','service'].includes(path))await account.authorizeService(request);
-  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup');
+  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup'||path.startsWith('number-reference')&&request.method!=='GET');
   if(request.method==='GET'){
    if(path==='state')return Response.json(await svc.state(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='history')return Response.json(await svc.history(url.searchParams.get('id')||''));
    if(path==='users')return Response.json(await account.users());
+   if(path==='number-reference')return Response.json(await readNumberReference(url.searchParams.get('year')),{headers:{'Cache-Control':'no-store'}});
    if(path==='backup')return Response.json(await exportBackup(),{headers:{'Cache-Control':'no-store','Content-Disposition':'attachment; filename="period-observer-backup.json"'}});
    if(path==='snapshot'){
     const s=await svc.snapshot(url.searchParams.get('source')||'');if(!s)return new Response('尚无网页快照，请先执行在线采集',{status:404});
@@ -31,6 +33,8 @@ async function handle(request:Request,context:any){
    case 'auth/login':case 'auth/bootstrap':{const r=await(path==='auth/login'?account.login(body,request):account.bootstrap(body,request));return Response.json({user:r.user},{headers:{'Set-Cookie':r.cookie,'Cache-Control':'no-store'}});}
    case 'auth/logout':return Response.json({signedOut:true},{headers:{'Set-Cookie':await account.logout(request),'Cache-Control':'no-store'}});
    case 'users/create':result=await account.createUser(body);break;
+   case 'number-reference/preview':result=await svc.previewNumberReference(body);break;
+   case 'number-reference/save':{for(const value of [body.url,body.contentUrl])if(value)svc.checkUrl(value);result=await saveNumberReference(body);break;}
    case 'users/update':result=await account.updateUser(body);break;
    case 'account/password':result=await account.changePassword(body);break;
    case 'sources/delete':result=await manage.deleteSources(body);break;

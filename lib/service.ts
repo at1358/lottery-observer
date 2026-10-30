@@ -5,6 +5,8 @@ import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,est
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
 import {folders as listFolders,ensureFolder,trashList} from './manage';
+import {rulesWithReference,validateReferenceYear} from './number-reference.mjs';
+import {collectReference} from './reference-collector.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -57,6 +59,7 @@ async function sourceDownload(url:string){
  }
  throw lastError;
 }
+export async function previewNumberReference(input:any){const year=validateReferenceYear(input.year);checkUrl(input.url);return collectReference({url:input.url,year},(url:string)=>download(url));}
 export async function previewSource(s:any){
  const sample=s.text||s.sample||'';
  const kindHint=/半头/.test(s.name+' '+sample)&&['自动识别','杀头','头数'].includes(s.kind)?inferKind(s.name+' '+sample):s.kind;
@@ -235,12 +238,14 @@ export async function tick(){
 }
 export async function state(query:URLSearchParams){
  await finalizeCollections();
- const [sources,ps,drawRows,jobs,rules,drawSource,drawSync,scheduler,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,periods]=await Promise.all([
-  list('SELECT * FROM sources WHERE deleted_batch IS NULL ORDER BY sort_order,created_at,name'),list('SELECT p.* FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.deleted_batch IS NULL AND s.deleted_batch IS NULL ORDER BY p.year DESC,p.issue DESC'),list('SELECT * FROM draws ORDER BY year DESC,issue DESC'),list('SELECT * FROM jobs ORDER BY created_at DESC LIMIT 80'),getSetting('rules'),getSetting('drawSource'),getSetting('drawSync'),getSetting('scheduler'),getSetting('collectionSchedule',DEFAULT_SCHEDULE),getSetting('historySource',DEFAULT_HISTORY),getSetting('historySync'),getSetting('drawSchedule',DEFAULT_DRAW_SCHEDULE),getSetting('drawScheduleState'),list("SELECT c.* FROM collection_periods c JOIN sources s ON s.id=c.source_id WHERE c.status='failed' AND c.deleted_batch IS NULL AND s.deleted_batch IS NULL")]);
+ const [sources,ps,drawRows,jobs,rules,drawSource,drawSync,scheduler,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,periods,referenceRows]=await Promise.all([
+  list('SELECT * FROM sources WHERE deleted_batch IS NULL ORDER BY sort_order,created_at,name'),list('SELECT p.* FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.deleted_batch IS NULL AND s.deleted_batch IS NULL ORDER BY p.year DESC,p.issue DESC'),list('SELECT * FROM draws ORDER BY year DESC,issue DESC'),list('SELECT * FROM jobs ORDER BY created_at DESC LIMIT 80'),getSetting('rules'),getSetting('drawSource'),getSetting('drawSync'),getSetting('scheduler'),getSetting('collectionSchedule',DEFAULT_SCHEDULE),getSetting('historySource',DEFAULT_HISTORY),getSetting('historySync'),getSetting('drawSchedule',DEFAULT_DRAW_SCHEDULE),getSetting('drawScheduleState'),list("SELECT c.* FROM collection_periods c JOIN sources s ON s.id=c.source_id WHERE c.status='failed' AND c.deleted_batch IS NULL AND s.deleted_batch IS NULL"),list("SELECT value FROM settings WHERE key LIKE 'numberReference:%'")]);
+ const annualReferences=new Map(referenceRows.map(r=>{const p=JSON.parse(r.value);return [p.year,p];}));
  const draws=drawRows.map(d=>({...d,numbers:JSON.parse(d.numbers||'[]'),zodiacs:JSON.parse(d.zodiacs||'[]')}));
  const dm=new Map(draws.map(d=>[d.year+'-'+d.issue,d]));const sm=new Map(sources.map(s=>[s.id,s]));
  const failures=new Map(periods.map(p=>[p.source_id+'-'+p.year+'-'+p.issue,p]));
- const all=ps.map(p=>{const draw=dm.get(p.year+'-'+p.issue),failure=failures.get(p.source_id+'-'+p.year+'-'+p.issue);return {...p,name:sm.get(p.source_id)?.name||'',parsed:JSON.parse(p.parsed),draw,collectionFailure:failure||null,backtest:!!p.historical||!!draw&&(!draw.drawn_at||p.first_seen>=draw.drawn_at),verdict:failure?{status:'collection_failed',reason:failure.reason}:evaluate(p,draw,rules.years?.[p.year]||{})};});
+ const effectiveRules=new Map([...new Set(ps.map(p=>p.year))].map(year=>[year,rulesWithReference(rules.years?.[year]||{},annualReferences.get(year))]));
+ const all=ps.map(p=>{const draw=dm.get(p.year+'-'+p.issue),failure=failures.get(p.source_id+'-'+p.year+'-'+p.issue);return {...p,name:sm.get(p.source_id)?.name||'',parsed:JSON.parse(p.parsed),draw,collectionFailure:failure||null,backtest:!!p.historical||!!draw&&(!draw.drawn_at||p.first_seen>=draw.drawn_at),verdict:failure?{status:'collection_failed',reason:failure.reason}:evaluate(p,draw,effectiveRules.get(p.year)||{})};});
  const existing=new Set(ps.map(p=>p.source_id+'-'+p.year+'-'+p.issue));
  for(const failure of periods){if(existing.has(failure.source_id+'-'+failure.year+'-'+failure.issue))continue;const source=sm.get(failure.source_id);if(!source)continue;all.push({...failure,id:'failed:'+failure.id,name:source.name,kind:source.kind,raw:'',parsed:{valid:false,values:[],warnings:[]},first_seen:failure.finalized_at,last_seen:failure.finalized_at,historical:0,changed:0,draw:dm.get(failure.year+'-'+failure.issue),backtest:false,synthetic:true,collectionFailure:failure,verdict:{status:'collection_failed',reason:failure.reason}});}
  all.sort((a,b)=>b.year-a.year||Number(b.issue)-Number(a.issue));
