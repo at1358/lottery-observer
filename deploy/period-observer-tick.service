@@ -1,0 +1,12 @@
+[Unit]
+Description=Check collection and draw schedules
+After=period-observer.service
+
+[Service]
+Type=oneshot
+User=period-observer
+WorkingDirectory=/opt/period-observer
+EnvironmentFile=/etc/period-observer.env
+ExecStart=/usr/bin/node /opt/period-observer/tick.mjs
+NoNewPrivileges=true
+PrivateTmp=true

@@ -1,0 +1,10 @@
+AUTH_MODE=standalone
+HOST=127.0.0.1
+PORT=3000
+DATA_DIR=/var/lib/period-observer
+MIGRATIONS_DIR=/opt/period-observer/drizzle
+BOOTSTRAP_ADMIN_TOKEN=replace-with-a-long-random-initialization-secret
+COLLECTOR_SERVICE_TOKEN=replace-with-a-different-long-random-service-secret
+# Only enable these behind the private Nginx listener configured above.
+VINEXT_TRUST_PROXY=1
+VINEXT_TRUSTED_HOSTS=your-real-domain.example

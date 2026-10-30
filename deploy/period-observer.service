@@ -1,0 +1,22 @@
+[Unit]
+Description=Period Observer web service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=period-observer
+Group=period-observer
+WorkingDirectory=/opt/period-observer
+EnvironmentFile=/etc/period-observer.env
+ExecStart=/usr/bin/node /opt/period-observer/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/period-observer
+
+[Install]
+WantedBy=multi-user.target

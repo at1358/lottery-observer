@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793213150471,
+      "tag": "0000_milky_shriek",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793214607177,
+      "tag": "0001_organic_madame_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793215322964,
+      "tag": "0002_overrated_rictor",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793218174514,
+      "tag": "0003_curly_salo",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793302919244,
+      "tag": "0004_greedy_diamondback",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793305290397,
+      "tag": "0005_rainy_fenris",
+      "breakpoints": true
+    }
+  ]
+}
