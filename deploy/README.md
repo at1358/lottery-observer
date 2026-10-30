@@ -1,5 +1,7 @@
 # Linux 独立部署
 
+Ubuntu 24.04 和 Rocky Linux 9.x 可直接使用 [发行版部署脚本与操作步骤](INSTALL-UBUNTU-ROCKY.md)，包含系统检查、Node 安装、源码构建、Nginx、systemd、每分钟定时器和更新备份。下面保留手工部署及资料迁移方法；自动脚本使用 `/opt/period-observer/current/` 版本目录，手工示例使用平铺目录，操作时选定一种方式。
+
 本系统提供两个构建目标：原 Sites 托管版本保留现有登录外层和发布流程；Linux 独立版本使用系统用户名、密码、SQLite 和系统定时器，不需要 ChatGPT 登录。
 
 ## 构建

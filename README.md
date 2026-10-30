@@ -1,5 +1,7 @@
 # 期数采集台
 
+**Ubuntu 24.04 / Rocky Linux 9 部署**：已提供 `deploy/ubuntu-24.04.sh` 和 `deploy/rocky-9.sh`，支持当前 9.x 稳定维护版本、源码或运行包安装、更新备份与定时服务。[查看部署步骤](deploy/INSTALL-UBUNTU-ROCKY.md)。
+
 当前版本新增独立账号、工作台自定义文件夹、来源与按期资料单条/批量删除、回收站，以及可配置的科技风总览。Sites 版本保留所有者外层访问限制，首次在系统设置创建主管理员，随后使用独立账号密码。没有生产默认用户名或默认密码。
 
 Linux 使用 Node.js 24 + SQLite 的独立生产构建，`npm run build:linux` 输出 dist-linux。系统每分钟检查采集计划，可按北京时间执行每天 19:00、每 120 分钟或每天 21:40 开奖。完整部署、HTTPS、systemd、备份导入说明见 [deploy/README.md](deploy/README.md)。Linux 尚未连接或部署到任何外部服务器。
