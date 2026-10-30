@@ -82,10 +82,16 @@ sudo sed -n 's/^BOOTSTRAP_ADMIN_TOKEN=//p' /etc/period-observer.env
 
 ## 6. 更新、运行包与文件位置
 
+在 Git 源码目录中执行更新脚本，使用首次部署的相同域名、证书和端口参数：
+
 ```sh
-git pull --ff-only
-# 重新执行原来的 Ubuntu / Rocky 安装命令，保持相同域名和证书参数。
+sudo bash deploy/update-linux.sh --domain observer.example.com \
+  --tls-cert /path/to/fullchain.pem --tls-key /path/to/privkey.pem
 ```
+
+更新脚本检查本地修改并从 `origin/main` 快进更新，拒绝覆盖本地改动或自动合并冲突；同一时间只运行一个更新任务。通过安装检查后，在 `/opt/period-observer/.deployed-commit` 记录实际部署的 Git 版本。后续新增功能推送到 GitHub 后，用同一命令更新服务器。
+
+早期版本没有此脚本时，先执行 `git pull --ff-only`。也可以继续重新执行原来的 Ubuntu / Rocky 安装命令。Ubuntu 安装依赖时只报告其他服务的待重启状态，避免自动重启主机上的无关服务。
 
 脚本保留 `/var/lib/period-observer`，不清空数据库或重新生成已有密钥。版本位于 `/opt/period-observer/releases/`，`current` 链接指向当前版本。旧版本、备份不会自动删除，请按服务器容量和保留周期自行管理。
 

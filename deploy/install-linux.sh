@@ -117,7 +117,7 @@ done
 log '安装系统依赖（不进行系统大版本升级）'
 if [[ "$PLATFORM" == ubuntu-24.04 ]]; then
  apt-get update
- DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl xz-utils nginx openssl tar python3 git build-essential util-linux
+ NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl xz-utils nginx openssl tar python3 git build-essential util-linux
 else
  dnf install -y ca-certificates curl xz nginx openssl tar python3 git gcc gcc-c++ make util-linux policycoreutils-python-utils
 fi

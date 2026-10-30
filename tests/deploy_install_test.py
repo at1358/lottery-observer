@@ -162,7 +162,7 @@ class ShellTests(unittest.TestCase):
             return result
 
     def test_bash_syntax_and_help(self):
-        for script in ("ubuntu-24.04.sh", "rocky-9.sh", "install-linux.sh"):
+        for script in ("ubuntu-24.04.sh", "rocky-9.sh", "install-linux.sh", "update-linux.sh"):
             result = subprocess.run([self.bash, "-n", str(ROOT / "deploy" / script)], capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.command("ubuntu-24.04.sh", ["--help"]).returncode, 0)
