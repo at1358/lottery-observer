@@ -213,7 +213,9 @@ RELEASE="$APP_ROOT/releases/$VERSION"
 install -d -m 0755 "$RELEASE"
 cp -a -- "$BUILT/." "$RELEASE/"
 chown -R root:root "$RELEASE"
-chmod -R go-w "$RELEASE"
+# Build output may inherit the installer's umask or the private staging directory.
+# The service user must be able to traverse and read the complete release.
+chmod -R a+rX,go-w "$RELEASE"
 BACKUP="/var/backups/period-observer/$VERSION"
 install -d -m 0700 "$BACKUP" "$BACKUP/config"
 for file in "${ROLLBACK_FILES[@]}"; do
