@@ -19,4 +19,5 @@
 .wecom-layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:22px;align-items:start}
 .push-preview{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f7f4;border:1px solid #dae9df;border-radius:12px;padding:20px;font-size:14px;line-height:2;font-family:inherit;color:#193b32;margin:0 0 18px}
 .push-status{display:flex;align-items:center;gap:8px;color:#177963;padding:22px 0 0}
+.heading-actions .review-results{display:inline-flex}
 @media(max-width:1050px){.wecom-layout{grid-template-columns:minmax(0,1fr)}}
