@@ -8,6 +8,9 @@ import {folders as listFolders,ensureFolder,trashList} from './manage';
 import {rulesWithReference,validateReferenceYear} from './number-reference.mjs';
 import {collectReference} from './reference-collector.mjs';
 import {sendLatestDraw,refreshPendingPush} from './wecom';
+import {captureDefinitions,attachDefinitionMetadata,enrichDefinition} from './source-definition-service';
+import {scheduledCombinations} from './combination-service';
+import {sourceDefinitions} from './source-rules.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -69,7 +72,7 @@ export async function previewSource(s:any){
  catch(e){if(s.content_url&&s.content_url!==s.url)data=await sourceDownload(s.url);else throw e;}
  const extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint},sourceDownload);
  const text=extracted.text;const kind=extracted.kind;
- const rows=splitPeriods(text).map((r:any)=>({...r,kind,parsed:{...parsePrediction(r.raw,kind,s.name),...(extracted.sourceRules?{sourceRules:extracted.sourceRules}:{})}}));
+ const rows=splitPeriods(text).map((r:any)=>({...r,kind,parsed:{...parsePrediction(r.raw,kind,s.name),...(extracted.sourceRules&&(s.year===undefined||(r.explicitYear||+s.year+(r.yearOffset||0))===+s.year)?{sourceRules:extracted.sourceRules}:{})}}));
  if(!rows.length)throw Error('未识别到“001期”这样的期数记录。请调整内容选择器，或粘贴网页正文；动态渲染页面需要提供正文接口。');
  const keys=new Set();for(const r of rows){const key=(r.explicitYear||r.yearOffset)+'-'+r.issue;if(keys.has(key))throw Error('选中的内容包含重复期数，可能混入多个资料栏目。请把正文选择器缩小到单个作者的单项资料。');keys.add(key);}
  return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,followedPages:extracted.visited};
@@ -114,15 +117,33 @@ export async function saveCollectionSchedule(input:any){
 }
 export async function ingest(source:any,rows:any[],historical=false){
  if(!(await list('SELECT id FROM sources WHERE id=? AND deleted_batch IS NULL',source.id)).length)throw Error('采集来源已删除');
- const old=await list('SELECT id,issue,year,raw FROM predictions WHERE source_id=?',source.id);
+ const old=await list('SELECT id,issue,year,raw,parsed,kind,changed,first_seen FROM predictions WHERE source_id=?',source.id);
+ const captured=rows.find(r=>r.parsed?.sourceRules)?.parsed.sourceRules,profile=await captureDefinitions(source,captured);
  const hiddenPeriods=new Map((await list('SELECT year,issue,deleted_batch FROM collection_periods WHERE source_id=? AND deleted_batch IS NOT NULL',source.id)).map(p=>[p.year+'-'+p.issue,p.deleted_batch]));
  const existing=new Map(old.map(r=>[r.year+'-'+r.issue,r]));let inserted=0,changed=0;const commands=[];const stamp=now();
+ // Some older collectors retained a printed reference table inside the original
+ // last row. Extract that already archived table even if the site removed the issue.
+ for(const stored of old){
+  const previous=JSON.parse(stored.parsed);if(stored.year!==source.year||previous.sourceRules?.capturedAt)continue;
+  const definition=sourceDefinitions(stored.raw);if(!definition.entries.length)continue;
+  const rules=enrichDefinition(previous.sourceRules,{...definition.rules,definitions:definition.entries.map(({index,...entry})=>entry),warnings:definition.warnings,capturedAt:stored.first_seen,version:'original:'+stored.id,origin:'首次采集原文内对照'});if(!rules)continue;
+  stored.parsed=JSON.stringify({...previous,sourceRules:rules});
+  commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)',id(),stored.id,'[从首次留档原文提取对照；原文、推荐值和留档时间均保留]\n'+JSON.stringify(rules),stamp));
+  commands.push(stmt('UPDATE predictions SET parsed=? WHERE id=?',stored.parsed,stored.id));
+ }
  for(const r of rows){
   if(+r.issue<1||+r.issue>366)continue;
   const year=r.explicitYear||source.year+(r.yearOffset||0),key=year+'-'+r.issue,found=existing.get(key);
-  if(found){if(found.raw!==r.raw){commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM revisions WHERE prediction_id=? AND raw=?)',id(),found.id,r.raw,stamp,found.id,r.raw));commands.push(stmt('UPDATE predictions SET changed=changed|1,last_seen=? WHERE id=?',stamp,found.id));changed++;}else commands.push(stmt('UPDATE predictions SET last_seen=? WHERE id=?',stamp,found.id));continue;}
-  const kind=r.kind||source.kind;const p={...parsePrediction(r.raw,kind,source.name),...(r.parsed?.sourceRules?{sourceRules:r.parsed.sourceRules}:{})};
-  const predictionId=id(),deletedBatch=hiddenPeriods.get(key)||null;commands.push(stmt('INSERT OR IGNORE INTO predictions(id,source_id,year,issue,kind,raw,parsed,first_seen,last_seen,historical,deleted_batch) VALUES(?,?,?,?,?,?,?,?,?,?,?)',predictionId,source.id,year,r.issue,kind,r.raw,JSON.stringify(p),stamp,stamp,historical?1:0,deletedBatch));existing.set(key,{raw:r.raw,id:predictionId});if(!deletedBatch)inserted++;
+  if(found){
+   const previous=JSON.parse(found.parsed),candidate:any=parsePrediction(r.raw,r.kind||source.kind,source.name),rules=enrichDefinition(previous.sourceRules,year===source.year?attachDefinitionMetadata(r.parsed?.sourceRules,profile):null);
+   if(!(found.changed&2)&&rules&&previous.valid&&candidate.valid&&found.kind===(r.kind||source.kind)&&previous.values.length===candidate.values.length&&previous.values.every((v:any)=>candidate.values.includes(v))){
+    commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)',id(),found.id,'[来源对照补全；原文和推荐值不变；开奖后补全仅用于历史核验]\n'+JSON.stringify(rules),stamp));
+    commands.push(stmt('UPDATE predictions SET parsed=?,historical=CASE WHEN EXISTS(SELECT 1 FROM draws WHERE draws.year=predictions.year AND draws.issue=predictions.issue) THEN 1 ELSE historical END WHERE id=?',JSON.stringify({...previous,sourceRules:rules}),found.id));
+   }
+   if(found.raw!==r.raw){commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM revisions WHERE prediction_id=? AND raw=?)',id(),found.id,r.raw,stamp,found.id,r.raw));commands.push(stmt('UPDATE predictions SET changed=changed|1,last_seen=? WHERE id=?',stamp,found.id));changed++;}else commands.push(stmt('UPDATE predictions SET last_seen=? WHERE id=?',stamp,found.id));continue;
+  }
+  const kind=r.kind||source.kind;const p={...parsePrediction(r.raw,kind,source.name),...(r.parsed?.sourceRules&&year===source.year?{sourceRules:attachDefinitionMetadata(r.parsed.sourceRules,profile)}:{})};
+  const predictionId=id(),deletedBatch=hiddenPeriods.get(key)||null;commands.push(stmt('INSERT OR IGNORE INTO predictions(id,source_id,year,issue,kind,raw,parsed,first_seen,last_seen,historical,deleted_batch) VALUES(?,?,?,?,?,?,?,?,?,?,?)',predictionId,source.id,year,r.issue,kind,r.raw,JSON.stringify(p),stamp,stamp,historical?1:0,deletedBatch));existing.set(key,{raw:r.raw,id:predictionId,parsed:JSON.stringify(p),kind,changed:0});if(!deletedBatch)inserted++;
  }
  await batches(commands);return {inserted,changed};
 }
@@ -235,10 +256,11 @@ export async function tick(){
  }
  await finalizeCollections();
  const [remaining]=await list('SELECT COUNT(*) AS count FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?)',now());
+ const combinations=await scheduledCombinations(crawl);success+=combinations.calculated+combinations.pushed;failed+=combinations.failed;
  const pending=collectionSchedule.enabled===false?0:remaining.count;
  await putSetting('scheduler',{lastRun:now(),success,failed,remaining:pending});
  await log('定时检查',failed?'error':'success',collectionSchedule.enabled===false?'全站自动采集已暂停；开奖同步按原设置运行':`本批检查完成：成功 ${success}，失败 ${failed}，剩余到期栏目 ${pending}`,success);
- return {success,failed,remaining:pending,push:pushResult};
+ return {success,failed,remaining:pending,push:pushResult,combinations};
 }
 export async function recheckResults(input:any={}){
  const query=new URLSearchParams();let name='全部采集资料';

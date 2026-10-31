@@ -2,6 +2,7 @@ import {list,run} from './db';
 import {DEFAULT_PUSH,validateWebhook,drawMessage,pushEligibility,postWecom,knownDrawDate,needsDrawRefresh} from './wecom-push.mjs';
 import {DEFAULT_DRAW_SCHEDULE} from './collection-deadline.mjs';
 const now=()=>new Date().toISOString();
+export async function sendRobotContent(content:string){const config=await setting('wecomPush');if(!config.webhook)throw Error('请先配置企业微信群机器人 Webhook');return postWecom(config.webhook,content);}
 async function setting(key:string,fallback:any={}){const [row]=await list('SELECT value FROM settings WHERE key=?',key);return row?JSON.parse(row.value):fallback;}
 async function store(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
 async function audit(status:string,message:string){await run('INSERT INTO jobs(id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),'企业微信推送',status,message,status==='success'?1:0,now());}

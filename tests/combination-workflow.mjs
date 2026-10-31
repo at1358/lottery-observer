@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';import {readFileSync,writeFileSync} from 'node:fs';import {DatabaseSync} from 'node:sqlite';import path from 'node:path';
+import {extractModule} from '../lib/extract.mjs';import {splitPeriods} from '../lib/domain.mjs';
+const base=process.env.QA_BASE_URL;if(!/^http:\/\/(?:127\.0\.0\.1|localhost):5\d{3}$/.test(base||''))throw Error('Isolated localhost QA required');let cookie='';
+async function api(route,data,status=200){const r=await fetch(base+'/api/'+route,{headers:{cookie,'Content-Type':'application/json'},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})}),value=await r.json();assert.equal(r.status,status,route+':'+JSON.stringify(value));if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return value;}
+await api('auth/login',{username:'qa-admin',password:'Local-only-admin-Password-9276'});const admin=cookie;
+const db=new DatabaseSync(path.join(process.env.QA_DATA_DIR,'observer.sqlite')),fixture=name=>readFileSync(new URL('./fixtures/'+name,import.meta.url),'utf8');
+const white=await api('source',{name:'QA 白小姐【主攻15码】',year:2026,kind:'15码',url:'https://qa-articles.example/white.html',selector:'html:nth-of-type(1) > div:nth-of-type(34) > div:nth-of-type(2)',sample:'304期:【主攻15码】开:？00准\n❤【01 08 09 10 13 21】❤\n【24 25 26 28 29 33 39 40 45】',interval:60,enabled:false,collectNow:true});assert.equal(white.inserted,2);assert.match(white.selector,/^title:/);
+const tail=await api('source',{name:'QA 组合绝杀一尾',year:2026,kind:'杀尾',url:'',selector:'auto',interval:60,enabled:false});await api('crawl',{id:tail.id,text:'305期绝杀一尾【3尾】'});
+const element=await api('source',{name:'QA 组合绝杀一行',year:2026,kind:'杀行',url:'',selector:'auto',interval:60,enabled:false}),seed=splitPeriods(extractModule(fixture('source-elements.html'),{kind:'杀行'}).text).find(r=>r.issue==='305');await api('crawl',{id:element.id,text:seed.raw});const original=(await api('state?source='+element.id+'&from=305&to=305')).rows[0];
+await api('crawl',{id:element.id,text:'304期绝杀一行【土行】'});const archived=(await api('state?source='+element.id+'&from=304&to=304')).rows[0],definitionText=extractModule(fixture('source-elements.html'),{kind:'杀行'}).sourceRules.definitions.map(d=>d.raw).join('\n'),archivedRaw=archived.raw+'\n'+definitionText;
+db.prepare('UPDATE predictions SET raw=?,parsed=? WHERE id=?').run(archivedRaw,JSON.stringify({...archived.parsed,sourceRules:undefined}),archived.id);
+await api('crawl',{id:element.id,text:fixture('source-elements.html')});
+let r=(await api('state?source='+element.id+'&from=305&to=305')).rows[0];
+let profiles=(await api('combinations')).profiles;assert.ok(profiles.some(p=>p.sourceId===element.id&&Object.keys(p.rules.elements).length===49));
+assert.equal(r.raw,original.raw);assert.equal(r.first_seen,original.first_seen);assert.equal(r.parsed.sourceRules.elements[4],'金');assert.equal(r.historical,original.historical);assert.equal((await api('history?id='+r.id)).filter(v=>v.raw.includes('来源对照补全')).length,1);
+const restored=(await api('state?source='+element.id+'&from=304&to=304')).rows[0];assert.equal(restored.raw,archivedRaw);assert.equal(restored.first_seen,archived.first_seen);assert.equal(restored.parsed.sourceRules.elements[21],'土');assert.equal(restored.parsed.sourceRules.origin,'首次采集原文内对照');
+await api('crawl',{id:element.id,text:fixture('source-elements.html')});assert.equal((await api('history?id='+r.id)).filter(v=>v.raw.includes('来源对照补全')).length,1);
+const segment=await api('source',{name:'QA 组合绝杀一段',year:2026,kind:'杀段',url:'',selector:'auto',interval:60,enabled:false});await api('crawl',{id:segment.id,text:fixture('source-segments.html')});
+// A deterministic manual step plus collected 15 codes tests persisted calculations independently of source prose labels.
+let saved=await api('combinations/save',{name:'QA 305组合',year:2026,baseNumbers:'',steps:[{type:'source',sourceId:white.id,mode:'include'},{type:'source',sourceId:tail.id,mode:'auto'}],targetMode:'upcoming',cutoff:'23:59',calculation:{enabled:false,time:'00:00',refreshSources:false},push:{enabled:false,time:'00:00'}}),plan=saved.plan;
+const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('expectedDrawPeriods',JSON.stringify({'2026-305':{year:2026,issue:'305',date:today}}));
+let first=(await api('combinations/calculate',{id:plan.id})).result;assert.equal(first.status,'complete');assert.deepEqual(first.numbers,[4,6,7,8,10,14,17,20,32,35,39,44,47,48]);
+assert.equal((await api('combinations/calculate',{id:plan.id})).result.id,first.id);let state=await api('combinations?plan='+plan.id);assert.equal(state.results.length,1);assert.equal(state.plans.find(p=>p.id===plan.id).runtime.lastStatus,'complete');
+await api('combinations/save',{...plan,name:'Concurrent update'});await api('combinations/save',{...plan,name:'Stale edit'},409);plan=(await api('combinations')).plans.find(p=>p.id===plan.id);
+const missing=await api('combinations/preview',{...plan,steps:[...plan.steps,{type:'source',sourceId:segment.id,mode:'auto'}],issue:306});assert.equal(missing.result.status,'blocked');assert.equal(missing.result.preview,true);
+await api('wecom/save',{webhook:'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=qa-only-robot-key-001',enabled:false,time:'21:40'});
+const before=readFileSync(process.env.QA_WECOM_LOG,'utf8').trim().split('\n').filter(Boolean).length;
+const sends=await Promise.all([api('combinations/send',{id:plan.id,resultId:first.id}),api('combinations/send',{id:plan.id,resultId:first.id})]);assert.equal(sends.filter(r=>r.sent).length,1);assert.equal(sends.filter(r=>r.skipped).length,1);
+let entries=readFileSync(process.env.QA_WECOM_LOG,'utf8').trim().split('\n').filter(Boolean).map(s=>JSON.parse(s));assert.equal(entries.length,before+1);assert.match(entries.at(-1).body.text.content,/组合计算结果/);
+await api('combinations/send',{id:plan.id,resultId:'missing-result'},400);
+// Automatic calculation and result delivery use separate clocks and the same persisted input snapshot.
+const timed=(await api('combinations/save',{...plan,id:undefined,revision:undefined,name:'QA 定时组合',calculation:{enabled:true,time:'00:00',refreshSources:true},push:{enabled:true,time:'23:58'}})).plan;
+db.prepare("UPDATE sources SET last_run='2000-01-01T00:00:00.000Z' WHERE id=?").run(white.id);
+db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('combinationRuntime:'+timed.id,JSON.stringify({nextCalc:'2000-01-01T00:00:00.000Z'}));
+const tick=await api('tick',{});assert.equal(tick.combinations.calculated,1);assert.equal(tick.combinations.pushed,0);assert.ok(db.prepare('SELECT last_run FROM sources WHERE id=?').get(white.id).last_run>'2000-01-01T00:00:00.000Z');
+let current=(await api('combinations')).plans.find(p=>p.id===timed.id);await api('combinations/push-config',{id:timed.id,revision:current.revision,enabled:true,time:'00:00'});
+assert.equal((await api('tick',{})).combinations.pushed,1);assert.equal((await api('tick',{})).combinations.pushed,0);
+const deletionPlan=(await api('combinations/save',{...timed,id:undefined,revision:undefined,name:'QA 删除资料拦截',calculation:{...timed.calculation,enabled:false},push:{...timed.push,enabled:false}})).plan,deletionResult=(await api('combinations/calculate',{id:deletionPlan.id})).result;
+const removed=await api('records/delete',{ids:[deletionResult.trace[0].predictionId]});await api('combinations/send',{id:deletionPlan.id,resultId:deletionResult.id},400);await api('trash/restore',{id:removed.batch});
+// Changing a plan invalidates an old result, and actual completed draws cannot be promoted to a forecast.
+current=(await api('combinations')).plans.find(p=>p.id===plan.id);await api('combinations/save',{...current,baseNumbers:'01 02'});await api('combinations/send',{id:plan.id,resultId:first.id},400);
+await api('draw',{year:2026,issue:305,number:17,zodiac:'虎',drawnAt:new Date(Date.now()-1000).toISOString(),drawDate:today});await api('combinations/send',{id:timed.id},400);
+await api('auth/login',{username:'qa-operator',password:'Local-only-operator-Password-9276'});await api('combinations');await api('combinations/calculate',{id:plan.id,issue:305});await api('combinations/send',{id:plan.id},403);await api('combinations/push-config',{id:plan.id,enabled:true,time:'00:00'},403);
+await api('auth/login',{username:'qa-viewer',password:'Reset-local-only-password-9276'});await api('combinations');await api('combinations/calculate',{id:plan.id},403);
+cookie=admin;for(const id of [plan.id,timed.id]){const p=(await api('combinations')).plans.find(p=>p.id===id);await api('combinations/save',{...p,calculation:{...p.calculation,enabled:false},push:{...p.push,enabled:false}});}
+db.close();writeFileSync(process.env.QA_WECOM_LOG,'');console.log('PASS: White 305 live-format recovery, captured source tables, saved manual combinations, immutable result snapshots, concurrency, independent clocks, deduplicated group delivery, stale/closed-period blocking and roles. Robot transport was mocked.');

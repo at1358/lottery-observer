@@ -5,7 +5,7 @@ if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
  if(url.hostname==='qa-articles.example'){
-  const file=url.pathname==='/shell.html'?'encrypted-shell-0.html':url.pathname==='/enc/articles/086.json'?'encrypted-payload-0.json':null;
+  const file=url.pathname==='/white.html'?'white-305.html':url.pathname==='/shell.html'?'encrypted-shell-0.html':url.pathname==='/enc/articles/086.json'?'encrypted-payload-0.json':null;
   if(!file)return new Response('Not found',{status:404});return new Response(readFileSync(new URL(file,import.meta.url)),{headers:{'Content-Type':file.endsWith('.json')?'application/json':'text/html; charset=utf-8'}});
  }
  if(url.hostname==='qa-history.example'){
