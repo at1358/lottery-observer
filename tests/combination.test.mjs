@@ -30,6 +30,16 @@ test('15-code inclusion intersects filters, supports manual exclusions and a leg
  assert.deepEqual(r.numbers,[4,8,10,14,17,32,35,39,44,47,48]);
  const zero=plan([],{baseNumbers:'01',steps:[{type:'manual',kind:'号码',values:'01',mode:'exclude'}]});assert.deepEqual(computeCombination(zero,{year:2026,issue:'305',predictions:[],sources:[]}).numbers,[]);
 });
+test('a manually selected 30-code source is the base pool, and killing tiger removes only tiger numbers in that pool',()=>{
+ const thirty=Array.from({length:30},(_,i)=>i+1),numbers=thirty.map(n=>String(n).padStart(2,'0')).join(' '),p=plan([],{baseMode:'source',baseSourceId:'thirty',steps:[{type:'manual',kind:'生肖',values:'虎',mode:'exclude'}]}),tigers=[5,17,29,41],zodiacs=Object.fromEntries(ALL_NUMBERS.map(n=>[n,tigers.includes(n)?'虎':'兔']));
+ const r=computeCombination(p,{year:2026,issue:'305',sources:[{id:'thirty',name:'必中30码',year:2026}],predictions:[row('thirty','号码','305期必中30码\n【'+numbers+'】')],rules:{zodiacs}});
+ assert.deepEqual(r.baseNumbers,thirty);assert.equal(r.total,27);assert.deepEqual(r.numbers,thirty.filter(n=>!tigers.includes(n)));assert.deepEqual(r.trace[1].matched,tigers);assert.deepEqual(r.trace[1].removed,[5,17,29]);
+ const fortyNine=computeCombination(plan([],{baseMode:'all',steps:p.steps}),{year:2026,issue:'305',sources:[],predictions:[],rules:{zodiacs}});assert.equal(fortyNine.total,45);
+});
+test('an already archived source table can be used directly without changing collected records',()=>{
+ const text=elements.definitions.map(d=>d.raw).join('\n'),legacy=row('element','杀行','305期绝杀一行【土行】\n'+text),original=JSON.stringify(legacy);
+ const r=computeCombination(plan(['element']),{year:2026,issue:'305',predictions:[legacy],sources,rules:annual});assert.equal(r.status,'complete');assert.equal(r.trace[0].origin,'栏目自带对照');assert.equal(JSON.stringify(legacy),original);assert.ok(!r.numbers.includes(21));
+});
 test('missing, failed, deleted or differently dated inputs block final output',()=>{
  const p=plan(['white','tail']);for(const context of [{predictions:predictions.filter(p=>p.source_id!=='tail')},{predictions:predictions.map(p=>p.source_id==='tail'?{...p,issue:'304'}:p)},{sources:sources.filter(s=>s.id!=='tail')},{failures:[{source_id:'tail',year:2026,issue:'305'}]}]){const r=computeCombination(p,{year:2026,issue:'305',predictions,sources,rules:annual,...context});assert.equal(r.status,'blocked');assert.deepEqual(r.numbers,[]);}
  assert.throws(()=>computeCombination(p,{year:2025,issue:'305',predictions,sources,rules:annual}),/年份/);

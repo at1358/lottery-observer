@@ -1,4 +1,15 @@
 import {list,run} from './db';
+import {validateReferenceYear} from './number-reference.mjs';
+import {sourceDefinitions} from './source-rules.mjs';
+export async function readSourceDefinitions(sourceId:string,yearInput:any){
+ const [source]=await list('SELECT id,name,year FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId);if(!source)throw Error('找不到该采集栏目');
+ const year=validateReferenceYear(yearInput||source.year),[stored]=await list('SELECT value FROM settings WHERE key=?','sourceReference:'+sourceId+':'+year);
+ if(stored)return {profile:JSON.parse(stored.value)};
+ if(year!==source.year)return {profile:null};
+ const old=await list('SELECT id,raw,parsed,first_seen FROM predictions WHERE source_id=? AND year=? AND deleted_batch IS NULL ORDER BY issue DESC LIMIT 50',sourceId,year);
+ for(const row of old){const parsed=JSON.parse(row.parsed),definition=sourceDefinitions(row.raw),rules=parsed.sourceRules?.definitions?.length?parsed.sourceRules:definition.entries.length?{...definition.rules,definitions:definition.entries.map(({index,...entry})=>entry),warnings:definition.warnings}:null;if(rules)return {profile:{sourceId,year,name:source.name,rules,capturedAt:rules.capturedAt||row.first_seen,origin:'首次留档原文'}};}
+ return {profile:null};
+}
 export async function captureDefinitions(source:any,rules:any){
  if(!rules?.definitions?.length&&!rules?.segments)return null;
  const key='sourceReference:'+source.id+':'+source.year;

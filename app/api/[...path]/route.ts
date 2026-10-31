@@ -6,6 +6,7 @@ import {exportBackup} from '../../../lib/backup';
 import {readNumberReference,saveNumberReference} from '../../../lib/reference-service';
 import {pushState,savePush,testPush,sendLatestDraw} from '../../../lib/wecom';
 import {combinationState,saveCombination,saveCombinationPush,calculateCombination,previewCombination,pushCombination,scheduledCombinations} from '../../../lib/combination-service';
+import {readSourceDefinitions} from '../../../lib/source-definition-service';
 export const dynamic='force-dynamic';
 async function handle(request:Request,context:any){
  const url=new URL(request.url);const path=url.pathname.replace(/^\/api\//,'');
@@ -19,6 +20,7 @@ async function handle(request:Request,context:any){
    if(path==='state')return Response.json(await svc.state(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='wecom')return Response.json(await pushState(),{headers:{'Cache-Control':'no-store'}});
    if(path==='combinations')return Response.json(await combinationState(url.searchParams.get('plan')||undefined),{headers:{'Cache-Control':'no-store'}});
+   if(path==='source-definition')return Response.json(await readSourceDefinitions(url.searchParams.get('source')||'',url.searchParams.get('year')),{headers:{'Cache-Control':'no-store'}});
    if(path==='history')return Response.json(await svc.history(url.searchParams.get('id')||''));
    if(path==='users')return Response.json(await account.users());
    if(path==='number-reference')return Response.json(await readNumberReference(url.searchParams.get('year')),{headers:{'Cache-Control':'no-store'}});
@@ -71,7 +73,7 @@ async function handle(request:Request,context:any){
     else if(body.operation==='syncDraws')result=await svc.syncDraws();
     else if(body.operation==='syncHistory')result=await svc.syncHistory(body.year);
     else if(body.operation==='crawlSource')result=await svc.crawl(body.id);
-    else if(body.operation==='runCombinations')result=await scheduledCombinations(svc.crawl);
+    else if(body.operation==='runCombinations')result=await scheduledCombinations();
     else if(body.operation==='runDrawUpdate'){result=await svc.scheduledDrawUpdate();await svc.finalizeCollections();}
     else if(body.operation==='previewSource'){const p=await svc.previewSource(body.source);result={kind:p.kind,total:p.rows.length,contentUrl:p.url,followedPages:p.followedPages,first:p.rows[0],last:p.rows.at(-1)};}
     else throw Error('未知后台操作');break;

@@ -256,7 +256,7 @@ export async function tick(){
  }
  await finalizeCollections();
  const [remaining]=await list('SELECT COUNT(*) AS count FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?)',now());
- const combinations=await scheduledCombinations(crawl);success+=combinations.calculated+combinations.pushed;failed+=combinations.failed;
+ const combinations=await scheduledCombinations();success+=combinations.calculated+combinations.pushed;failed+=combinations.failed;
  const pending=collectionSchedule.enabled===false?0:remaining.count;
  await putSetting('scheduler',{lastRun:now(),success,failed,remaining:pending});
  await log('定时检查',failed?'error':'success',collectionSchedule.enabled===false?'全站自动采集已暂停；开奖同步按原设置运行':`本批检查完成：成功 ${success}，失败 ${failed}，剩余到期栏目 ${pending}`,success);
