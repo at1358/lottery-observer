@@ -8,6 +8,11 @@ globalThis.fetch=async(input,options)=>{
   const file=url.pathname==='/shell.html'?'encrypted-shell-0.html':url.pathname==='/enc/articles/086.json'?'encrypted-payload-0.json':null;
   if(!file)return new Response('Not found',{status:404});return new Response(readFileSync(new URL(file,import.meta.url)),{headers:{'Content-Type':file.endsWith('.json')?'application/json':'text/html; charset=utf-8'}});
  }
+ if(url.hostname==='qa-history.example'){
+  appendFileSync(process.env.QA_WECOM_LOG,JSON.stringify({kind:'history'})+'\n');
+  const date=new Date(Date.now()+8*3600000).toISOString().slice(0,10),numbers=[8,28,40,3,38,49,17],zodiacs=[...'猪兔兔龙蛇马虎'];
+  return new Response('<ul id="msg"><li><dt>366期 '+date+'</dt><div class="ball">'+numbers.map((n,i)=>'<p><span>'+n+'</span><b>'+zodiacs[i]+'</b></p>').join('')+'</div></li></ul>');
+ }
  if(url.hostname!=='qyapi.weixin.qq.com')return fetchOriginal(input,options);
  if(!['qa-only-robot-key-001','qa-only-robot-failure'].includes(url.searchParams.get('key')))throw Error('Only fake robot keys are allowed in QA');
  appendFileSync(process.env.QA_WECOM_LOG,JSON.stringify({body:JSON.parse(options.body),at:new Date().toISOString()})+'\n');

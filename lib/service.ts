@@ -7,7 +7,7 @@ import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs
 import {folders as listFolders,ensureFolder,trashList} from './manage';
 import {rulesWithReference,validateReferenceYear} from './number-reference.mjs';
 import {collectReference} from './reference-collector.mjs';
-import {sendLatestDraw} from './wecom';
+import {sendLatestDraw,refreshPendingPush} from './wecom';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -222,6 +222,7 @@ export async function scheduledDrawUpdate(){
 export async function tick(){
  const stamp=now();let success=0,failed=0;
  const drawResult:any=await scheduledDrawUpdate();if(!drawResult.skipped){success+=drawResult.errors.length?0:1;failed+=drawResult.errors.length;}
+ await refreshPendingPush(dailyDrawUpdate);
  const pushResult:any=await sendLatestDraw();if(pushResult.sent)success++;if(pushResult.failed)failed++;
  await finalizeCollections();
  const collectionSchedule=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);

@@ -33,6 +33,10 @@ await api('draw',{year:2026,issue:366,number:17,zodiac:'虎',numbers:[8,28,40,3,
 let sends=await Promise.all([api('wecom/send',{}),api('wecom/send',{})]);assert.equal(sends.filter(r=>r.sent).length,1);assert.equal(sends.filter(r=>r.skipped).length,1);
 assert.equal((await api('wecom/send',{})).skipped,true);assert.equal((await api('wecom')).deliveries[0].status,'sent');
 let logs=readFileSync(process.env.QA_WECOM_LOG,'utf8').trim().split('\n').map(s=>JSON.parse(s));assert.equal(logs.length,1);assert.match(logs[0].body.text.content,/特码：17（虎）/);
+// The real live feed omits the completed draw's timestamp; its previously announced same-period date is usable.
+db.prepare('UPDATE draws SET draw_date=NULL,drawn_at=NULL WHERE year=2026 AND issue=?').run('366');
+db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('expectedDrawPeriods',JSON.stringify({'2026-366':{year:2026,issue:'366',date:today}}));
+assert.ok((await api('wecom')).preview.includes(today));assert.equal((await api('wecom')).reason,null);
 await api('wecom/test',{});await api('wecom/test',{},400);
 await api('wecom/save',{webhook:'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=qa-only-robot-failure',enabled:true,time:'00:00'});
 db.prepare("DELETE FROM settings WHERE key='wecomDelivery:2026:366'").run();
@@ -40,6 +44,12 @@ await api('wecom/send',{},400);assert.equal((await api('wecom')).deliveries[0].s
 // Expired retry runs from the same background tick as production.
 const value=JSON.parse(db.prepare("SELECT value FROM settings WHERE key='wecomDelivery:2026:366'").get().value);value.retryAt='2026-01-01T00:00:00.000Z';db.prepare("UPDATE settings SET value=? WHERE key='wecomDelivery:2026:366'").run(JSON.stringify(value));
 await api('wecom/save',{webhook,enabled:true,time:'00:00'});const tick=await api('tick',{});assert.equal(tick.push.sent,true);assert.equal((await api('tick',{})).push.skipped,true);
+// If 21:40 returned only an old result, later ticks refresh the feed and send the late new result.
+db.prepare("UPDATE draws SET draw_date='2026-01-01',drawn_at=NULL WHERE year=2026 AND issue='366'").run();db.prepare("DELETE FROM settings WHERE key='wecomDelivery:2026:366'").run();
+await api('settings',{key:'drawSource',value:{enabled:false}});await api('settings',{key:'historySource',value:{enabled:true,year:2026,url:'https://qa-history.example/am.html'}});await api('settings',{key:'drawSchedule',value:{enabled:true,time:'21:40'}});
+db.prepare("UPDATE settings SET value=? WHERE key='drawScheduleState'").run(JSON.stringify({lastRun:'2026-01-01T00:00:00Z',nextRun:'2099-01-01T00:00:00.000Z'}));
+assert.equal((await api('tick',{})).push.sent,true);assert.equal((await api('wecom')).deliveries[0].status,'sent');await api('tick',{});
+const refreshes=readFileSync(process.env.QA_WECOM_LOG,'utf8').trim().split('\n').map(s=>JSON.parse(s)).filter(r=>r.kind==='history');assert.equal(refreshes.length,1);
 await api('auth/login',{username:'qa-operator',password:'Local-only-operator-Password-9276'});await api('wecom');await api('recheck',{source:source.id});await api('wecom/save',{time:'21:40',enabled:false},403);await api('wecom/test',{},403);await api('wecom/send',{},403);
 cookie=adminCookie;await api('wecom/save',{clearWebhook:true,enabled:false,time:'21:40'});assert.equal((await api('wecom')).configured,false);
 db.close();console.log('PASS: 30-row cross-page automatic/history rechecks, changed and cross-year draws, masked webhook, roles, current-day complete results, concurrent dedupe, retry lease, scheduled delivery and clearing configuration. All sends used a local mock.');

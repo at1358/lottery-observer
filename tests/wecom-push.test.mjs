@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateWebhook,drawMessage,pushEligibility,postWecom} from '../lib/wecom-push.mjs';
+import {validateWebhook,drawMessage,pushEligibility,postWecom,knownDrawDate,needsDrawRefresh} from '../lib/wecom-push.mjs';
 import {inferKind} from '../lib/domain.mjs';
 const webhook='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=qa-only-robot-key-001';
 const at=Date.parse('2026-10-31T21:45:00+08:00'),config={webhook,time:'21:40',enabled:true};
 const draw={year:2026,issue:'304',number:17,zodiac:'虎',numbers:[8,28,40,3,38,49,17],zodiacs:[...'猪兔兔龙蛇马虎'],draw_date:'2026-10-31'};
 test('a numeric segment value in the sample does not hide its exclusion title',()=>{assert.equal(inferKind('东逃西散绝杀一段 287期:绝杀一段【4段】特开:猪08准'),'杀段');});
+test('date fallback uses only the same period explicitly announced by the feed',()=>{
+ const noDate={...draw,draw_date:null};assert.equal(knownDrawDate(noDate,{'2026-305':{year:2026,issue:'305',date:'2026-11-01'}}).draw_date,null);
+ assert.equal(knownDrawDate(noDate,{'2026-304':{year:2026,issue:'304',date:'2026-10-31'}}).draw_date,'2026-10-31');
+ assert.equal(knownDrawDate(noDate,{'2026-304':{year:2025,issue:'304',date:'2026-10-31'}}).draw_date,null);
+ assert.equal(knownDrawDate(noDate,{'2026-304':{year:2026,issue:'304',date:'2026-02-30'}}).draw_date,null);
+ assert.equal(needsDrawRefresh(config,draw,at),false);assert.equal(needsDrawRefresh(config,{...draw,draw_date:'2026-10-30'},at),true);assert.equal(needsDrawRefresh({...config,enabled:false},null,at),false);assert.equal(needsDrawRefresh(config,null,at-10*60000),false);
+});
 test('robot URL only accepts the official HTTPS endpoint and one key',()=>{
  assert.equal(validateWebhook(webhook),webhook);
  for(const url of ['http://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcdefgh','https://qyapi.weixin.qq.com.attacker.invalid/cgi-bin/webhook/send?key=abcdefgh','https://127.0.0.1/cgi-bin/webhook/send?key=abcdefgh',webhook+'&key=another-key',webhook+'&redirect=1',webhook+'#fragment','https://qyapi.weixin.qq.com:4433/cgi-bin/webhook/send?key=abcdefgh'])assert.throws(()=>validateWebhook(url));

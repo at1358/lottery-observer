@@ -1,10 +1,22 @@
 import {list,run} from './db';
-import {DEFAULT_PUSH,validateWebhook,drawMessage,pushEligibility,postWecom} from './wecom-push.mjs';
+import {DEFAULT_PUSH,validateWebhook,drawMessage,pushEligibility,postWecom,knownDrawDate,needsDrawRefresh} from './wecom-push.mjs';
+import {DEFAULT_DRAW_SCHEDULE} from './collection-deadline.mjs';
 const now=()=>new Date().toISOString();
 async function setting(key:string,fallback:any={}){const [row]=await list('SELECT value FROM settings WHERE key=?',key);return row?JSON.parse(row.value):fallback;}
 async function store(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
 async function audit(status:string,message:string){await run('INSERT INTO jobs(id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),'企业微信推送',status,message,status==='success'?1:0,now());}
-async function latest(){const [row]=await list('SELECT * FROM draws ORDER BY year DESC,issue DESC LIMIT 1');return row?{...row,numbers:JSON.parse(row.numbers||'[]'),zodiacs:JSON.parse(row.zodiacs||'[]')}:null;}
+async function latest(){const [row]=await list('SELECT * FROM draws ORDER BY year DESC,issue DESC LIMIT 1');return row?knownDrawDate({...row,numbers:JSON.parse(row.numbers||'[]'),zodiacs:JSON.parse(row.zodiacs||'[]')},await setting('expectedDrawPeriods')):null;}
+export async function refreshPendingPush(refresh:()=>Promise<any>){
+ const config=await setting('wecomPush',DEFAULT_PUSH),draw=await latest();
+ if(!needsDrawRefresh(config,draw)||!(await setting('drawSchedule',DEFAULT_DRAW_SCHEDULE)).enabled)return {skipped:true};
+ const scheduled=await setting('drawScheduleState'),key='wecomDrawRefresh',[stored]=await list('SELECT value FROM settings WHERE key=?',key),before=stored?JSON.parse(stored.value):{};
+ if(Date.parse(scheduled.lastRun||'')>Date.now()-5*60000||before.nextCheck>now())return {skipped:true};
+ const value={lastRun:now(),nextCheck:new Date(Date.now()+5*60000).toISOString()},serialized=JSON.stringify(value);
+ const claimed=stored?await run('UPDATE settings SET value=? WHERE key=? AND value=?',serialized,key,stored.value):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,serialized);
+ if(!claimed.meta.changes)return {skipped:true};
+ try{const result=await refresh();await store(key,{...value,error:result.errors?.join('；')||null});return result;}
+ catch{await store(key,{...value,error:'等待开奖结果时同步失败，五分钟后重试'});return {failed:true};}
+}
 export async function pushState(){
  const config=await setting('wecomPush',DEFAULT_PUSH),draw=await latest(),deliveries=await list("SELECT value FROM settings WHERE key LIKE 'wecomDelivery:%' ORDER BY key DESC LIMIT 12");
  let preview='',reason=pushEligibility(config,draw,Date.now(),true);try{if(draw)preview=drawMessage(draw);}catch{}
