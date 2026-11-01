@@ -19,7 +19,7 @@ async function handle(request:Request,context:any){
   if(request.method==='GET'){
    if(path==='state')return Response.json(await svc.state(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='wecom')return Response.json(await pushState(),{headers:{'Cache-Control':'no-store'}});
-   if(path==='combinations')return Response.json(await combinationState(url.searchParams.get('plan')||undefined),{headers:{'Cache-Control':'no-store'}});
+   if(path==='combinations')return Response.json(await combinationState(url.searchParams.get('plan')||undefined,url.searchParams.get('issue')||undefined),{headers:{'Cache-Control':'no-store'}});
    if(path==='source-definition')return Response.json(await readSourceDefinitions(url.searchParams.get('source')||'',url.searchParams.get('year')),{headers:{'Cache-Control':'no-store'}});
    if(path==='history')return Response.json(await svc.history(url.searchParams.get('id')||''));
    if(path==='users')return Response.json(await account.users());
@@ -50,7 +50,7 @@ async function handle(request:Request,context:any){
    case 'folders/reorder':result=await manage.reorder(body);break;
    case 'folders/delete':result=await manage.deleteFolder(body);break;
    case 'trash/restore':result=await manage.restore(body.id);break;
-   case 'preview':{const p=await svc.previewSource(body);result={kind:p.kind,selector:p.selector,contentUrl:p.url,identity:p.identity,relocated:p.relocated,followedPages:p.followedPages,rows:p.rows.slice(0,10),total:p.rows.length};break;}
+   case 'preview':{const p=await svc.previewSource(body);result={kind:p.kind,selector:p.selector,contentUrl:p.url,identity:p.identity,relocated:p.relocated,followedPages:p.followedPages,navigation:p.navigation,rows:p.rows.slice(0,10),total:p.rows.length};break;}
    case 'source':result=await svc.saveSource(body);break;
    case 'recheck':result=await svc.recheckResults(body);break;
    case 'wecom/save':result=await savePush(body);break;
@@ -70,13 +70,16 @@ async function handle(request:Request,context:any){
    case 'service':{
     if(body.operation==='configureDrawSource'){if(body.value.url)svc.checkUrl(body.value.url);await svc.putSetting('drawSource',body.value);result={saved:true};}
     else if(body.operation==='readStatus'){result=await svc.state(new URLSearchParams(body.query||{}));}
+    else if(body.operation==='configureDrawSchedule')result=await svc.saveDrawSchedule(body.value);
+    else if(body.operation==='configureSource'){const source=(await svc.state(new URLSearchParams())).sources.find((s:any)=>s.id===body.id);if(!source)throw Error('栏目不存在');result=await svc.saveSource({...source,...body.value,id:source.id,collectNow:true});}
+    else if(body.operation==='combinationHistory')result=await combinationState(body.id);
     else if(body.operation==='syncDraws')result=await svc.syncDraws();
     else if(body.operation==='syncHistory')result=await svc.syncHistory(body.year);
     else if(body.operation==='recheck')result=await svc.recheckResults(body);
     else if(body.operation==='crawlSource')result=await svc.crawl(body.id);
     else if(body.operation==='runCombinations')result=await scheduledCombinations();
     else if(body.operation==='runDrawUpdate'){result=await svc.scheduledDrawUpdate();await svc.finalizeCollections();}
-    else if(body.operation==='previewSource'){const p=await svc.previewSource(body.source);result={kind:p.kind,total:p.rows.length,contentUrl:p.url,identity:p.identity,relocated:p.relocated,followedPages:p.followedPages,first:p.rows[0],last:p.rows.at(-1)};}
+    else if(body.operation==='previewSource'){const p=await svc.previewSource(body.source);result={kind:p.kind,total:p.rows.length,contentUrl:p.url,identity:p.identity,relocated:p.relocated,followedPages:p.followedPages,navigation:p.navigation,first:p.rows[0],last:p.rows.at(-1)};}
     else throw Error('未知后台操作');break;
    }
    case 'revise':result=await svc.revise(body.id,body.raw,body.kind);break;

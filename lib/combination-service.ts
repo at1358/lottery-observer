@@ -4,6 +4,7 @@ import {rulesWithReference} from './number-reference.mjs';
 import {nextScheduledRun} from './schedule.mjs';
 import {beijingDate} from './wecom-push.mjs';
 import {sendRobotContent} from './wecom';
+import {combinationPeriodReport} from './combination-results.mjs';
 const stamp=()=>new Date().toISOString(),planKey=(id:string)=>'combinationPlan:'+id,runtimeKey=(id:string)=>'combinationRuntime:'+id;
 async function setting(key:string,fallback:any={}){const [r]=await list('SELECT value FROM settings WHERE key=?',key);return r?JSON.parse(r.value):fallback;}
 async function put(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
@@ -83,12 +84,25 @@ async function execute(plan:any,input:any={},persist=true,refresh=true){
 }
 export async function calculateCombination(input:any){const plan=await findPlan(input.id);return {result:await execute(plan,input)};}
 export async function previewCombination(input:any){const plan={...validateCombination(input),id:input.id||'preview',revision:null};return {result:await execute(plan,input,false)};}
-export async function combinationState(selectedId?:string){
+async function periodReport(plan:any,snapshots:any[]){
+ const ids=sourceIds(plan),sources=await list('SELECT id,name,kind,year,deleted_batch FROM sources WHERE deleted_batch IS NULL'),draws=await list('SELECT * FROM draws WHERE year=?',plan.year);
+ const predictions=ids.length?await list(`SELECT * FROM predictions WHERE year=? AND deleted_batch IS NULL AND source_id IN (${ids.map(()=>'?').join(',')})`,plan.year,...ids):[];
+ const failures=await list("SELECT source_id,year,issue FROM collection_periods WHERE year=? AND status='failed' AND deleted_batch IS NULL",plan.year);
+ const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference),algorithmHash=await hash(algorithm(plan));
+ const current=snapshots.filter(r=>r.algorithmHash===algorithmHash),issues=[...new Set<string>([...predictions.map(p=>p.issue),...failures.filter(f=>ids.includes(f.source_id)).map(f=>f.issue),...current.map(r=>r.issue),...(!ids.length?draws.map(d=>d.issue):[])])].sort();
+ const grouped=new Map<string,any[]>();for(const p of predictions){if(!grouped.has(p.issue))grouped.set(p.issue,[]);grouped.get(p.issue)!.push(p);}
+ const backtests=issues.filter(issue=>!current.some(r=>r.issue===issue&&r.status==='complete')).map(issue=>({...computeCombination(plan,{year:plan.year,issue,predictions:grouped.get(issue)||[],sources,rules:effective,failures:failures.filter(f=>f.issue===issue)}),id:'backtest:'+plan.id+':'+issue,planId:plan.id,planName:plan.name,algorithmHash,createdAt:stamp(),historical:true,backtest:true,collection:[]}));
+ return combinationPeriodReport([...current,...backtests],draws);
+}
+export async function combinationState(selectedId?:string,selectedIssue?:string){
  const values=await plans(),sources=await list('SELECT id,name,kind,year,url,error,enabled FROM sources WHERE deleted_batch IS NULL ORDER BY sort_order,created_at'),runtimeRows=await list("SELECT key,value FROM settings WHERE key LIKE 'combinationRuntime:%'"),profiles=(await list("SELECT value FROM settings WHERE key LIKE 'sourceReference:%'")).map(r=>JSON.parse(r.value));
  const runtimes=new Map(runtimeRows.map(r=>[r.key.slice('combinationRuntime:'.length),JSON.parse(r.value)]));
  const selected=selectedId?values.find(p=>p.id===selectedId):null,resultRows=selected?await list("SELECT value FROM settings WHERE key LIKE ? ORDER BY json_extract(value,'$.createdAt') DESC LIMIT 20",'combinationResult:'+selected.id+':%'):[];
+ const report=selected?await periodReport(selected,(await list("SELECT value FROM settings WHERE key LIKE ?",'combinationResult:'+selected.id+':%')).map(r=>JSON.parse(r.value))):null;
+ const periodResult=selectedIssue?report?.periods.find((r:any)=>r.issue===String(Number(selectedIssue)).padStart(3,'0'))||null:null;
+ const compactReport=report?{...report,periods:report.periods.map((r:any)=>({id:r.id,year:r.year,issue:r.issue,status:r.status,total:r.total,numbers:r.numbers,createdAt:r.createdAt,backtest:r.backtest,historical:r.historical,settlement:r.settlement,snapshotCount:r.snapshotCount,errors:r.errors}))}:null;
  const decorated=[];for(const plan of values){const runtime=runtimes.get(plan.id)||{},last=runtime.lastResultId?await setting(runtime.lastResultId,null):null;decorated.push({...plan,runtime,lastResult:last?{id:last.id,issue:last.issue,year:last.year,status:last.status,total:last.total,numbers:last.numbers,createdAt:last.createdAt,errors:last.errors}:null});}
- return {plans:decorated,sources,profiles,results:resultRows.map(r=>JSON.parse(r.value)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
+ return {report:compactReport,periodResult,plans:decorated,sources,profiles,results:resultRows.map(r=>JSON.parse(r.value)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
 }
 async function resultToSend(plan:any,selectedId?:string){
  let result=selectedId?await setting(selectedId,null):null;

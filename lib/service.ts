@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import {evaluate, statistics, parsePrediction, splitPeriods, inferKind, validateDraw, parseMacauSocket, KINDS} from './domain.mjs';
 import {resolveModule} from './content-resolver.mjs';
+import {discoverEntry} from './entry-navigation.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -29,6 +30,9 @@ function validateSource(s:any){
  if(!Number.isInteger(+s.year)||+s.year<2000||+s.year>2100)throw Error('请确认资料年份');
  if(!KINDS.includes(s.kind))throw Error('请选择有效的资料类型');
  if(s.url)checkUrl(s.url);
+ if(s.entry_mode&& !['direct','navigation'].includes(s.entry_mode))throw Error('采集方法无效');
+ if(s.entry_mode==='navigation'&&(!String(s.entry_keyword||'').trim()||String(s.entry_keyword).length>100))throw Error('请填写100字以内的栏目查找关键词');
+ if(String(s.entry_line||'').length>60)throw Error('线路名称过长');
  if(!Number.isInteger(+s.interval)||+s.interval<60||+s.interval>10080)throw Error('采集间隔应为 60–10080 分钟');
  if(String(s.selector||'body').length>200)throw Error('内容选择器过长');
  validateSchedule({mode:s.schedule_mode||'inherit',time:s.daily_time||'16:30',interval:s.interval},true);
@@ -40,11 +44,11 @@ export function checkUrl(value:string){
  if(h==='localhost'||h.endsWith('.localhost')||h.endsWith('.local')||h.endsWith('.internal')||h==='metadata.google.internal'||h.includes(':')||/^\d+(?:\.\d+){3}$/.test(h)||!h.includes('.'))throw Error('请使用公开网站域名，不支持内部地址或 IP 地址');
  return u;
 }
-async function download(url:string,strictOrigin=false,referer?:string){
+async function download(url:string,strictOrigin=false,referer?:string,exposeRedirect=false){
  let u=checkUrl(url);
  for(let hop=0;hop<5;hop++){
   const response=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(18000),headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9','Cache-Control':'no-cache','Referer':referer||u.origin+'/'}});
-  if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源对服务器请求返回跨站跳转，已停止本次采集；浏览器可能仍可访问，已有留档资料可以继续复核');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
+  if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(exposeRedirect)return {text:'',url:u.href,redirectUrl:next.href};if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源对服务器请求返回跨站跳转，已停止本次采集；浏览器可能仍可访问，已有留档资料可以继续复核');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
   if(!response.ok)throw Error(`来源网站返回 HTTP ${response.status}`);
   const reader=response.body?.getReader();if(!reader)throw Error('网站没有返回内容');
   const chunks:Uint8Array[]=[];let size=0;
@@ -69,14 +73,17 @@ export async function previewNumberReference(input:any){const year=validateRefer
 export async function previewSource(s:any){
  const sample=s.text||s.sample||'';
  const kindHint=/半头/.test(s.name+' '+sample)&&['自动识别','杀头','头数'].includes(s.kind)?inferKind(s.name+' '+sample):s.kind;
- let extracted:any,lastError:any;const urls=s.url?[...new Set([s.content_url,s.url].filter(Boolean))]:[''];
- for(const url of urls){try{const data=url?await sourceDownload(url):{text:String(s.text||''),url:'https://text-preview.invalid/'};extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0},sourceDownload);if(urls[0]!==url)extracted.relocated=true;break;}catch(error){lastError=error;}}
+ let extracted:any,lastError:any;
+ const options={selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0};
+ if(s.url&&s.entry_mode==='navigation')extracted=await discoverEntry(s.url,{...options,keyword:s.entry_keyword,line:s.entry_line},(url:string,referer?:string)=>download(url,true,referer,true));
+ const urls=s.url?[...new Set([s.content_url,s.url].filter(Boolean))]:[''];
+ for(const url of extracted?[]:urls){try{const data=url?await sourceDownload(url):{text:String(s.text||''),url:'https://text-preview.invalid/'};extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0},sourceDownload);if(urls[0]!==url)extracted.relocated=true;break;}catch(error){lastError=error;}}
  if(!extracted)throw lastError;
  const text=extracted.text;const kind=extracted.kind;
  const rows=splitPeriods(text).map((r:any)=>({...r,kind,parsed:{...parsePrediction(r.raw,kind,s.name),...(extracted.sourceRules&&(s.year===undefined||(r.explicitYear||+s.year+(r.yearOffset||0))===+s.year)?{sourceRules:extracted.sourceRules}:{})}}));
  if(!rows.length)throw Error('未识别到“001期”这样的期数记录。请调整内容选择器，或粘贴网页正文；动态渲染页面需要提供正文接口。');
  const keys=new Set();for(const r of rows){const key=(r.explicitYear||r.yearOffset)+'-'+r.issue;if(keys.has(key))throw Error('选中的内容包含重复期数，可能混入多个资料栏目。请把正文选择器缩小到单个作者的单项资料。');keys.add(key);}
- return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,identity:extracted.identity||s.locator_identity||'',relocated:!!extracted.relocated,followedPages:extracted.visited};
+ return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,identity:extracted.identity||s.locator_identity||'',relocated:!!extracted.relocated,followedPages:extracted.visited,navigation:extracted.navigation||[]};
 }
 export async function saveSource(s:any){
  await finalizeCollections();
@@ -86,7 +93,7 @@ export async function saveSource(s:any){
  const folderId=s.folder_id===undefined?(previous?previous.folder_id:await ensureFolder(s.kind)):s.folder_id||null;
  if(folderId&&!(await list('SELECT id FROM folders WHERE id=? AND deleted_batch IS NULL',folderId)).length)throw Error('选择的文件夹不存在');
  const collectNow=s.collectNow===undefined?!previous:s.collectNow===true;
- const needsVerify=s.url&&sample&&(collectNow||!previous||previous.url!==s.url||previous.sample!==sample||previous.kind!==s.kind||previous.selector!==s.selector||previous.error);
+ const needsVerify=s.url&&sample&&(collectNow||!previous||previous.url!==s.url||previous.sample!==sample||previous.kind!==s.kind||previous.selector!==s.selector||previous.entry_mode!==(s.entry_mode||'direct')||previous.entry_keyword!==(s.entry_keyword||'')||previous.entry_line!==(s.entry_line||'')||previous.error);
  let preview:any=null,warning:string|null=null;
  if(needsVerify){try{preview=await previewSource({...s,sample,text:sample,content_url:previous?.url===s.url?s.content_url||previous.content_url:''});}catch(e:any){warning=e.message;}}
  const source={...s,id:sourceId,year:+s.year,kind:preview?.kind||s.kind,selector:preview?.selector||s.selector||'auto',sample,content_url:preview?.url||(previous?.url===s.url?previous.content_url:'')||'',schedule_mode:s.schedule_mode||'inherit',daily_time:s.daily_time||'16:30',enabled:warning?0:(s.enabled===undefined?previous?!!previous.enabled:true:!!s.enabled)?1:0};
@@ -97,6 +104,8 @@ export async function saveSource(s:any){
  await run('UPDATE sources SET cutoff_time=?,tracking_from=? WHERE id=?',s.cutoff_time||previous?.cutoff_time||'21:35',source.enabled?(previous?.enabled&&previous.tracking_from||now()):previous?.tracking_from||null,sourceId);
  await run('UPDATE sources SET folder_id=? WHERE id=?',folderId,sourceId);
  await run('UPDATE sources SET locator_identity=?,auto_relocate=? WHERE id=?',preview?.identity||previous?.locator_identity||null,s.auto_relocate===undefined?(previous?.auto_relocate??1):(s.auto_relocate===false||s.auto_relocate===0?0:1),sourceId);
+ await run('UPDATE sources SET entry_mode=?,entry_keyword=?,entry_line=? WHERE id=?',s.entry_mode||previous?.entry_mode||'direct',s.entry_keyword??previous?.entry_keyword??'',s.entry_line??previous?.entry_line??'',sourceId);
+ if(preview?.navigation?.length)await putSetting('sourceNavigation:'+sourceId,{resolvedAt:now(),contentUrl:preview.url,steps:preview.navigation});
  let inserted=0;
  if(preview&&collectNow){const result=await ingest(source,preview.rows);inserted=result.inserted;await storeSnapshot(sourceId,preview.html);await run('UPDATE sources SET last_run=? WHERE id=?',now(),sourceId);}
  await log(s.name,warning?'warning':'success',warning?'配置已保存，自动采集未启用：'+warning:'栏目配置已保存；下次计划 '+plannedLabel(nextRun),inserted,sourceId);
@@ -159,6 +168,7 @@ export async function crawl(sourceId:string,text?:string,options:any={}){
   if(!text)await storeSnapshot(s.id,result.html);
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
   await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?s.next_run:nextScheduledRun(effectiveSchedule(s,defaults)),s.id);
+  if(result.navigation?.length)await putSetting('sourceNavigation:'+s.id,{resolvedAt:now(),contentUrl:result.url,steps:result.navigation});
   if(result.relocated)await log('正文自动定位','success',`${s.name}：已确认同一栏目并自动更新正文位置`,1,s.id);
   await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更`,counts.inserted,s.id);return counts;
  }catch(e:any){await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),options.preserveSchedule?s.next_run:new Date(Date.now()+Math.max(30,s.interval*2)*60000).toISOString(),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}

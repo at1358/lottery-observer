@@ -33,7 +33,8 @@ test('late capture and incomplete parsing fail, paused sources and periods befor
 });
 test('failed collection is counted separately and excluded from accuracy denominator',()=>{
  const s=statistics(['win','loss','collection_failed','collection_failed'].map(status=>({verdict:{status}})));assert.equal(s.collectionFailed,2);assert.equal(s.settled,2);assert.equal(s.rate,50);assert.equal(s.errorRate,50);
- assert.equal(nextScheduledRun(DEFAULT_DRAW_SCHEDULE,'2026-10-30T13:39:00Z'),'2026-10-30T13:40:00.000Z');
+ assert.equal(nextScheduledRun(DEFAULT_DRAW_SCHEDULE,'2026-10-30T13:37:00Z'),'2026-10-30T13:38:00.000Z');
+ assert.equal(nextScheduledRun(DEFAULT_DRAW_SCHEDULE,'2026-10-30T13:39:00Z'),'2026-10-31T13:38:00.000Z');
  assert.equal(nextScheduledRun({mode:'daily',time:'19:00'},'2026-10-30T10:00:00Z'),'2026-10-30T11:00:00.000Z');
  assert.equal(nextScheduledRun({mode:'interval',interval:120},'2026-10-30T10:00:00Z'),'2026-10-30T12:00:00.000Z');
 });

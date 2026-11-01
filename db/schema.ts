@@ -5,6 +5,7 @@ export const sources = sqliteTable('sources', {
  kind: text('kind').notNull(), year: integer('year').notNull(), selector: text('selector').notNull().default('body'),
  sample: text('sample').notNull().default(''),
  contentUrl: text('content_url').notNull().default(''),
+ entryMode:text('entry_mode').notNull().default('direct'),entryKeyword:text('entry_keyword').notNull().default(''),entryLine:text('entry_line').notNull().default(''),
  locatorIdentity: text('locator_identity'), autoRelocate: integer('auto_relocate').notNull().default(1),
  scheduleMode: text('schedule_mode').notNull().default('inherit'),
  dailyTime: text('daily_time').notNull().default('16:30'),

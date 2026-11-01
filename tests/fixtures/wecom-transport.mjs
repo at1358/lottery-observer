@@ -4,6 +4,10 @@ const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-entry.example'){
+  const name=url.pathname==='/'?'entry-root.html':url.pathname==='/line'?'entry-line.html':url.pathname==='/column'?'entry-column.html':null;
+  return name?new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/'+name)),{headers:{'Content-Type':'text/html; charset=utf-8'}}):new Response('Not found',{status:404});
+ }
  if(url.hostname==='qa-articles.example'){
   if(['/history-shell.html','/history-body.html','/history-moved.html','/history-again.html'].includes(url.pathname))return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/'+url.pathname.slice(1))),{headers:{'Content-Type':'text/html; charset=utf-8'}});
   if(url.pathname==='/draws.json')return Response.json([{year:2026,issue:302,number:8,zodiac:'羊',drawn_at:'2026-10-29T21:35:00+08:00'}]);
