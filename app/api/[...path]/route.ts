@@ -72,6 +72,7 @@ async function handle(request:Request,context:any){
     else if(body.operation==='readStatus'){result=await svc.state(new URLSearchParams(body.query||{}));}
     else if(body.operation==='syncDraws')result=await svc.syncDraws();
     else if(body.operation==='syncHistory')result=await svc.syncHistory(body.year);
+    else if(body.operation==='recheck')result=await svc.recheckResults(body);
     else if(body.operation==='crawlSource')result=await svc.crawl(body.id);
     else if(body.operation==='runCombinations')result=await scheduledCombinations();
     else if(body.operation==='runDrawUpdate'){result=await svc.scheduledDrawUpdate();await svc.finalizeCollections();}

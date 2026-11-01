@@ -35,6 +35,11 @@ export async function saveCombinationPush(input:any){const old=await findPlan(in
 async function target(plan:any,input:any={}){
  if(input.issue){const issue=String(Number(input.issue)).padStart(3,'0');if(!/^\d{3}$/.test(issue)||+issue<1||+issue>366||Number(input.year||plan.year)!==plan.year)throw Error('请输入同年份有效期数');return periodInfo(plan.year,issue);}
  if(plan.targetMode==='fixed')return periodInfo(plan.year,plan.fixedIssue);
+ if(plan.targetMode==='latest'){
+  const ids=sourceIds(plan);if(!ids.length)throw Error('按资料最新一期计算时，请至少选择一个采集栏目，或手动指定期数');
+  const [row]=await list(`SELECT MAX(p.issue) AS issue FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.year=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND p.source_id IN (${ids.map(()=>'?').join(',')})`,plan.year,...ids);
+  if(!row?.issue)throw Error('所选栏目暂无已采集期数，请先采集资料');return periodInfo(plan.year,row.issue);
+ }
  if(plan.targetMode==='common'){
   const ids=sourceIds(plan);
   if(ids.length){const [row]=await list(`SELECT p.year,p.issue FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.year=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND p.source_id IN (${ids.map(()=>'?').join(',')}) GROUP BY p.year,p.issue HAVING COUNT(DISTINCT p.source_id)=? ORDER BY p.issue DESC LIMIT 1`,plan.year,...ids,ids.length);if(!row)throw Error('所选栏目没有共同期数，请先采集同一期资料');return periodInfo(plan.year,row.issue);}
@@ -44,21 +49,37 @@ async function target(plan:any,input:any={}){
  if(!candidates.length)throw Error('暂无可信开奖源公布的待开奖期数；请同步开奖或手动指定期数');return periodInfo(plan.year,candidates[0].issue);
 }
 async function periodInfo(year:number,issue:string){const [draw]=await list('SELECT draw_date,drawn_at FROM draws WHERE year=? AND issue=?',year,issue),expected=await setting('expectedDrawPeriods'),date=draw?.draw_date||expected[year+'-'+issue]?.date||(draw?.drawn_at?beijingDate(Date.parse(draw.drawn_at)):null);return {year,issue,date,drawn:!!draw};}
-async function execute(plan:any,input:any={},persist=true){
+async function refreshSources(plan:any){
+ if(plan.calculation.refreshSources===false)return [];
+ const {crawl}=await import('./service'),results=[];
+ for(const id of sourceIds(plan)){
+  const [source]=await list('SELECT id,name,url,year FROM sources WHERE id=? AND deleted_batch IS NULL',id);
+  if(!source?.url)continue;
+  if(source.year!==plan.year){results.push({sourceId:id,name:source.name,status:'error',error:'栏目年份与组合年份不一致'});continue;}
+  try{const counts=await crawl(id,undefined,{preserveSchedule:true});results.push({sourceId:id,name:source.name,status:'success',...counts});}
+  catch(e:any){results.push({sourceId:id,name:source.name,status:'error',error:e.message});}
+ }
+ return results;
+}
+async function execute(plan:any,input:any={},persist=true,refresh=true){
+ const collection=refresh?await refreshSources(plan):[];
  const period=await target(plan,input),sources=await list('SELECT id,name,year,kind,deleted_batch FROM sources WHERE deleted_batch IS NULL');
  const ids=sourceIds(plan),predictions=ids.length?await list(`SELECT * FROM predictions WHERE year=? AND issue=? AND deleted_batch IS NULL AND source_id IN (${ids.map(()=>'?').join(',')})`,period.year,period.issue,...ids):[];
  const failures=await list("SELECT source_id,year,issue FROM collection_periods WHERE year=? AND issue=? AND status='failed' AND deleted_batch IS NULL",period.year,period.issue);
  const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference);
  const computed=computeCombination(plan,{...period,predictions,sources,rules:effective,failures});
+ // A failed live refresh cannot silently publish a stale snapshot as latest.
+ const collectionErrors=collection.filter(r=>r.status==='error').map(r=>r.name+'：采集最新资料失败（'+r.error+'）');
+ if(collectionErrors.length){computed.errors.push(...collectionErrors);computed.status='blocked';computed.numbers=[];computed.total=null;}
  const algorithmHash=await hash(algorithm(plan)),fingerprint=await hash({algorithm:algorithmHash,year:period.year,issue:period.issue,trace:computed.trace,errors:computed.errors});
  const key='combinationResult:'+plan.id+':'+period.year+':'+period.issue+':'+fingerprint;
- const result={...computed,id:key,planId:plan.id,planName:plan.name,planRevision:plan.revision||null,algorithmHash,fingerprint,periodDate:period.date,drawn:period.drawn,historical:period.drawn||predictions.some(p=>p.historical),createdAt:stamp()};
+ const result={...computed,collection,id:key,planId:plan.id,planName:plan.name,planRevision:plan.revision||null,algorithmHash,fingerprint,periodDate:period.date,drawn:period.drawn,historical:period.drawn||predictions.some(p=>p.historical),createdAt:stamp()};
  if(!persist)return {...result,preview:true};
  await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,JSON.stringify(result));const saved=await setting(key);
  await updateRuntime(plan.id,{lastCalc:stamp(),lastResultId:key,lastStatus:saved.status,lastError:saved.errors.join('；')||null});
  // A deterministic result is retained once; audit each actual calculation for transparency.
  await audit(saved.status==='complete'?'success':'warning',`「${plan.name}」${period.year}年第${period.issue}期：${saved.status==='complete'?'剩余候选 '+saved.total+' 个':saved.errors.join('；')}`,saved.total||0);
- return saved;
+ return {...saved,collection};
 }
 export async function calculateCombination(input:any){const plan=await findPlan(input.id);return {result:await execute(plan,input)};}
 export async function previewCombination(input:any){const plan={...validateCombination(input),id:input.id||'preview',revision:null};return {result:await execute(plan,input,false)};}
@@ -105,9 +126,8 @@ export async function scheduledCombinations(){
   try{
    if(localTime>=plan.cutoff){if(due)await updateRuntime(plan.id,{nextCalc:tomorrow(plan),lastError:'已超过开奖前截止时间，本日不再自动计算或推送'});continue;}
    if(due&&calculated+blocked<6){
-    try{const period=await target(plan);if(period.date!==beijingDate()||period.drawn){await updateRuntime(plan.id,{nextCalc:tomorrow(plan),lastError:'等待可信开奖源公布当天待开奖期数'});blocked++;}
-     else{
-      const result=await execute(plan);await updateRuntime(plan.id,{nextCalc:result.status==='complete'?nextCalculation(plan):new Date(Date.now()+5*60000).toISOString()});if(result.status==='complete')calculated++;else blocked++;}}
+    try{const result=await execute(plan);if(result.periodDate!==beijingDate()||result.drawn){await updateRuntime(plan.id,{nextCalc:new Date(Date.now()+5*60000).toISOString(),lastError:'已检查所选栏目最新资料，等待当天待开奖期数，不推送历史结果'});blocked++;}
+     else{await updateRuntime(plan.id,{nextCalc:result.status==='complete'?nextCalculation(plan):new Date(Date.now()+5*60000).toISOString()});if(result.status==='complete')calculated++;else blocked++;}}
     catch(e:any){blocked++;await updateRuntime(plan.id,{nextCalc:new Date(Date.now()+5*60000).toISOString(),lastError:e.message});}
    }
    if(pushDue&&pushed<4){const result=await pushCombination({id:plan.id},false);if(result.sent)pushed++;if(result.failed)failed++;}

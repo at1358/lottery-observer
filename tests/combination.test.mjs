@@ -9,6 +9,11 @@ function row(source_id,kind,raw,rules){return {id:source_id,source_id,year:2026,
 const predictions=[row('sx','杀肖','305期绝杀二肖【蛇虎】'),row('tail','杀尾','305期绝杀一尾【3尾】'),row('element','杀行','305期绝杀一行【土行】',elements),row('segment','杀段','305期绝杀一段【4段】',segments),row('white','15码','305期【主攻15码】\n【04 06 07 08 10 14 17 20 23 32 35 39 44 47 48】')];
 const annual={zodiacs:Object.fromEntries(ALL_NUMBERS.map(n=>[n,n%2?'蛇':'鼠'])),elements:Object.fromEntries(ALL_NUMBERS.map(n=>[n,'土'])),segments:Object.fromEntries(ALL_NUMBERS.map(n=>[n,7]))};
 const plan=(ids,patch={})=>validateCombination({name:'验收组合',year:2026,steps:ids.map(sourceId=>({type:'source',sourceId,mode:'auto'})),...patch});
+test('latest-period mode and refresh-before-calculation are explicit persisted settings',()=>{
+ const latest=plan(['white'],{targetMode:'latest'});assert.equal(latest.targetMode,'latest');assert.equal(latest.calculation.refreshSources,true);
+ assert.equal(plan(['white'],{calculation:{refreshSources:false}}).calculation.refreshSources,false);
+ assert.throws(()=>plan(['white'],{targetMode:'unknown'}),/期数选择方式/);
+});
 test('White 305 recovers a changed numeric path and retains a stable title selector',()=>{
  const result=extractModule(fixture('white-305.html'),{name:'白小姐 1491.com【主攻15码】',kind:'15码',sample:whiteSample,selector:'html:nth-of-type(1) > div:nth-of-type(34) > div:nth-of-type(2)'});
  assert.match(result.selector,/^title:/);const rows=splitPeriods(result.text);assert.deepEqual(rows.map(r=>r.issue),['304','305']);assert.deepEqual(parsePrediction(rows[1].raw,'15码').values,[4,6,7,8,10,14,17,20,23,32,35,39,44,47,48]);

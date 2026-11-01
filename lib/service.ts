@@ -11,6 +11,7 @@ import {sendLatestDraw,refreshPendingPush} from './wecom';
 import {captureDefinitions,attachDefinitionMetadata,enrichDefinition} from './source-definition-service';
 import {scheduledCombinations} from './combination-service';
 import {sourceDefinitions} from './source-rules.mjs';
+import {verifyStoredResults} from './verification-service';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -42,7 +43,7 @@ async function download(url:string,strictOrigin=false,referer?:string){
  let u=checkUrl(url);
  for(let hop=0;hop<5;hop++){
   const response=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(18000),headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9','Cache-Control':'no-cache','Referer':referer||u.origin+'/'}});
-  if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源临时跳转到其他站点，已停止采集以免混入无关内容');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
+  if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源对服务器请求返回跨站跳转，已停止本次采集；浏览器可能仍可访问，已有留档资料可以继续复核');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
   if(!response.ok)throw Error(`来源网站返回 HTTP ${response.status}`);
   const reader=response.body?.getReader();if(!reader)throw Error('网站没有返回内容');
   const chunks:Uint8Array[]=[];let size=0;
@@ -147,7 +148,7 @@ export async function ingest(source:any,rows:any[],historical=false){
  }
  await batches(commands);return {inserted,changed};
 }
-export async function crawl(sourceId:string,text?:string){
+export async function crawl(sourceId:string,text?:string,options:any={}){
  const [s]=await list('SELECT * FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId);if(!s)throw Error('找不到该来源');
  try{
   const result=await previewSource({...s,text});
@@ -155,11 +156,11 @@ export async function crawl(sourceId:string,text?:string){
   const counts=await ingest(s,result.rows,!!text);
   if(!text)await storeSnapshot(s.id,result.html);
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
-  await run('UPDATE sources SET kind=?,selector=?,content_url=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',now(),nextScheduledRun(effectiveSchedule(s,defaults)),s.id);
+  await run('UPDATE sources SET kind=?,selector=?,content_url=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',now(),options.preserveSchedule?s.next_run:nextScheduledRun(effectiveSchedule(s,defaults)),s.id);
   await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更`,counts.inserted,s.id);return counts;
- }catch(e:any){await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),new Date(Date.now()+Math.max(30,s.interval*2)*60000).toISOString(),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
+ }catch(e:any){await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),options.preserveSchedule?s.next_run:new Date(Date.now()+Math.max(30,s.interval*2)*60000).toISOString(),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
 }
-export async function saveDraw(input:any,provenance='手动录入',allowUnknownTime=false){
+export async function saveDraw(input:any,provenance='手动录入',allowUnknownTime=false,deferVerification=false){
  const d=validateDraw(input,allowUnknownTime);const drawnAt=d.drawnAt?new Date(d.drawnAt).toISOString():null;
  const [before]=await list('SELECT * FROM draws WHERE year=? AND issue=?',d.year,d.issue);
  const sameResult=before?.number===d.number;
@@ -167,9 +168,10 @@ export async function saveDraw(input:any,provenance='手动录入',allowUnknownT
  const zodiacs=d.zodiacs?.length?d.zodiacs:sameResult?JSON.parse(before.zodiacs||'[]'):[];
  const actualTime=drawnAt||before?.drawn_at||null,drawDate=d.drawDate||before?.draw_date||null;
  const zodiac=d.zodiac|| (sameResult?before.zodiac:null)||null,element=d.element||(sameResult?before.element:null)||null;
- if(before&&sameResult&&(before.zodiac||null)===zodiac&&(before.element||null)===element&&(before.drawn_at||null)===actualTime&&before.numbers===JSON.stringify(numbers)&&before.zodiacs===JSON.stringify(zodiacs)&&(before.draw_date||null)===drawDate)return {...d,unchanged:true};
+ if(before&&sameResult&&(before.zodiac||null)===zodiac&&(before.element||null)===element&&(before.drawn_at||null)===actualTime&&before.numbers===JSON.stringify(numbers)&&before.zodiacs===JSON.stringify(zodiacs)&&(before.draw_date||null)===drawDate){if(!deferVerification)await finalizeCollections();return {...d,unchanged:true,verification:deferVerification?null:await verifyStoredResults({year:d.year,issues:[d.issue],name:`${d.year} 年第 ${d.issue} 期`,trigger:'draw'})};}
  await run('INSERT INTO draws(id,year,issue,number,zodiac,element,drawn_at,provenance,updated_at,numbers,zodiacs,draw_date) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(year,issue) DO UPDATE SET number=excluded.number,zodiac=excluded.zodiac,element=excluded.element,drawn_at=excluded.drawn_at,provenance=excluded.provenance,updated_at=excluded.updated_at,numbers=excluded.numbers,zodiacs=excluded.zodiacs,draw_date=excluded.draw_date',id(),d.year,d.issue,d.number,zodiac,element,actualTime,provenance,now(),JSON.stringify(numbers),JSON.stringify(zodiacs),drawDate);
- await log('开奖结果','success',`${d.year} 年第 ${d.issue} 期，特码 ${String(d.number).padStart(2,'0')}，来源：${provenance}${before?'；更正前：'+JSON.stringify({number:before.number,zodiac:before.zodiac,element:before.element,drawn_at:before.drawn_at,provenance:before.provenance}):''}`,before?0:1);return d;
+ await log('开奖结果','success',`${d.year} 年第 ${d.issue} 期，特码 ${String(d.number).padStart(2,'0')}，来源：${provenance}${before?'；更正前：'+JSON.stringify({number:before.number,zodiac:before.zodiac,element:before.element,drawn_at:before.drawn_at,provenance:before.provenance}):''}`,before?0:1);
+ if(!deferVerification)await finalizeCollections();const verification=deferVerification?null:await verifyStoredResults({year:d.year,issues:[d.issue],name:`${d.year} 年第 ${d.issue} 期`,trigger:'draw'});return {...d,verification};
 }
 const pathValue=(obj:any,path:string)=>path?path.split('.').reduce((a,k)=>a?.[k],obj):obj;
 export async function syncDraws(){
@@ -180,8 +182,9 @@ export async function syncDraws(){
   const root=pathValue(data,c.root||'');const rows=Array.isArray(root)?root:[root];if(rows.length>366)throw Error('一次最多同步 366 期');
   // Validate the entire response before writing; malformed feeds never become partial truth.
   const validated=rows.map(row=>validateDraw({year:Number(pathValue(row,c.yearField||'year')),issue:String(pathValue(row,c.issueField||'issue')),number:Number(pathValue(row,c.numberField||'number')),zodiac:pathValue(row,c.zodiacField||'zodiac')||null,element:pathValue(row,c.elementField||'element')||null,drawnAt:pathValue(row,c.timeField||'drawn_at'),numbers:pathValue(row,c.numbersField||'numbers'),zodiacs:pathValue(row,c.zodiacsField||'zodiacs'),drawDate:pathValue(row,c.dateField||'drawDate')}));
-  for(const d of validated)await saveDraw(d,c.url);
-  await putSetting('drawSync',{lastRun:now(),error:null,count:validated.length});return {count:validated.length};
+  for(const d of validated)await saveDraw(d,c.url,false,true);
+  await finalizeCollections();const verification=[];for(const year of [...new Set(validated.map(d=>d.year))])verification.push(await verifyStoredResults({year,issues:validated.filter(d=>d.year===year).map(d=>d.issue),name:year+' 年同步开奖',trigger:'draw'}));
+  await putSetting('drawSync',{lastRun:now(),error:null,count:validated.length});return {count:validated.length,verification};
  }catch(e:any){await putSetting('drawSync',{lastRun:now(),error:e.message});await log('开奖同步','error',e.message);throw e;}
 }
 export async function syncHistory(year?:number){
@@ -199,7 +202,7 @@ export async function syncHistory(year?:number){
   await batches(commands);
   await putSetting('historySync',{lastRun:now(),year:selected,count:rows.length,changed,error:null});
   await log('历史开奖','success',`${selected} 年历史开奖同步完成，共 ${rows.length} 期，新增或更新 ${changed} 期（六码平码、特码及七码生肖）`,changed);
-  await finalizeCollections();return {count:rows.length,changed,year:selected};
+  await finalizeCollections();const verification=await verifyStoredResults({year:selected,issues:rows.map(row=>row.issue),name:selected+' 年历史开奖',trigger:'draw'});return {count:rows.length,changed,year:selected,verification};
  }catch(e:any){await putSetting('historySync',{lastRun:now(),year:selected,error:e.message});await log('历史开奖','error',e.message);throw e;}
 }
 export async function saveDrawSchedule(input:any){
@@ -268,10 +271,7 @@ export async function recheckResults(input:any={}){
  if(input.year!==undefined&&input.year!==''){const year=validateReferenceYear(input.year);query.set('year',String(year));name+=' · '+year+' 年';}
  // The same evaluation path powers the table, ranking and explicit recheck.
  // It evaluates all matching rows before pagination and never trusts a page's 准/中 label.
- const result=await state(query),report={...result.stats,name,source:input.source||null,year:query.get('year')||null,checkedAt:now()};
- await putSetting('lastVerification',report);
- await log('开奖复核','success',`${name}：共 ${report.total} 条，正确 ${report.win}，错误 ${report.loss}，待开奖 ${report.pending}，待复核 ${report.review}，采集失败 ${report.collectionFailed}`,report.settled,input.source||null);
- return report;
+ await finalizeCollections();return verifyStoredResults({name,source:input.source||undefined,year:query.get('year')||undefined});
 }
 export async function state(query:URLSearchParams){
  await finalizeCollections();

@@ -1,4 +1,4 @@
-import {list,run} from './db';
+import {list,run,stmt,batches} from './db';
 import {validateReferenceYear} from './number-reference.mjs';
 import {sourceDefinitions} from './source-rules.mjs';
 export async function readSourceDefinitions(sourceId:string,yearInput:any){
@@ -28,4 +28,21 @@ export function enrichDefinition(previous:any,current:any){
  if(fields.some(field=>previous?.[field]&&current[field]&&JSON.stringify(previous[field])!==JSON.stringify(current[field])))return null;
  if(previous&&fields.every(field=>!current[field]||previous[field]))return null;
  return {...current,...previous,definitions:current.definitions||previous?.definitions,warnings:current.warnings||previous?.warnings};
+}
+// Recover missing interpretation from this column's archived table without any
+// network request. Original recommendations, raw text and first_seen stay intact.
+export async function restoreArchivedDefinitions(sourceId?:string,year?:number){
+ const rows=await list(`SELECT p.*,s.name,s.year AS source_year FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.deleted_batch IS NULL AND s.deleted_batch IS NULL${sourceId?' AND p.source_id=?':''}${year?' AND p.year=?':''} ORDER BY p.issue DESC`,...[...(sourceId?[sourceId]:[]),...(year?[year]:[])]);
+ const profiles=new Map(),commands=[];let restored=0;
+ for(const row of rows){
+  const parsed=JSON.parse(row.parsed);if(!parsed.valid||(row.changed&2))continue;
+  const key=row.source_id+':'+row.year;
+  if(!profiles.has(key))profiles.set(key,(await readSourceDefinitions(row.source_id,row.year)).profile);
+  const profile=profiles.get(key),own=sourceDefinitions(row.raw),current=own.entries.length?{...own.rules,definitions:own.entries.map(({index,...entry})=>entry),warnings:own.warnings,capturedAt:row.first_seen,origin:'首次采集原文内对照'}:profile?{...profile.rules,capturedAt:profile.capturedAt,version:profile.version,origin:profile.origin||'已留档栏目对照'}:null;
+  const rules=enrichDefinition(parsed.sourceRules,current);if(!rules)continue;
+  const updated=JSON.stringify({...parsed,sourceRules:rules}),at=new Date().toISOString();
+  commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM predictions WHERE id=? AND parsed=?)',crypto.randomUUID(),row.id,'[离线复核补全已留档栏目对照；保留原文、推荐值和首次采集时间]\n'+JSON.stringify(rules),at,row.id,row.parsed));
+  commands.push(stmt('UPDATE predictions SET parsed=?,historical=CASE WHEN EXISTS(SELECT 1 FROM draws WHERE draws.year=predictions.year AND draws.issue=predictions.issue) THEN 1 ELSE historical END WHERE id=? AND parsed=?',updated,row.id,row.parsed));restored++;
+ }
+ await batches(commands);return restored;
 }
