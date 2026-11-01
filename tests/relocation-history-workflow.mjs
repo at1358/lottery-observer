@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';import {writeFileSync} from 'node:fs';import path from 'node:path';import {DatabaseSync} from 'node:sqlite';
+const base=process.env.QA_BASE_URL;if(!/^http:\/\/(?:127\.0\.0\.1|localhost):5\d{3}$/.test(base||''))throw Error('Isolated local QA required');let cookie='';
+async function api(route,data,status=200){const r=await fetch(base+'/api/'+route,{headers:{cookie,'Content-Type':'application/json'},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})}),v=await r.json();assert.equal(r.status,status,route+':'+JSON.stringify(v));if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return v;}
+await api('auth/login',{username:'qa-admin',password:'Local-only-admin-Password-9276'});
+const db=new DatabaseSync(path.join(process.env.QA_DATA_DIR,'observer.sqlite')),file=(name,text)=>writeFileSync(path.join(process.env.QA_DATA_DIR,name),text),name='东逃西散【绝杀一段】',mapping=Array.from({length:7},(_,i)=>`${i+1}段：`+Array.from({length:7},(_,j)=>String(i*7+j+1).padStart(2,'0')).join('、')).join('<br>');
+const body=(id,title,segment,result='？00准')=>`<article id="${id}"><header><span>${title}</span></header><p>340期:绝杀一段【${segment}段】特开:${result}</p><div>${mapping}</div></article>`;
+file('history-shell.html','<iframe src="/history-body.html"></iframe>');file('history-body.html',body('old',name,4));
+const source=await api('source',{name,year:2026,kind:'杀段',url:'https://qa-articles.example/history-shell.html',selector:'auto',sample:'340期:绝杀一段【4段】特开:？00准',interval:60,enabled:false,collectNow:true});assert.equal(source.inserted,1);
+const row=async()=> (await api('state?source='+source.id)).rows[0];let initial=await row();assert.equal(initial.latest_version,0);
+file('history-body.html',body('old',name,4,'狗21准'));assert.equal((await api('crawl',{id:source.id})).changed,0);file('history-body.html',body('old',name,4,'狗21中'));assert.equal((await api('crawl',{id:source.id})).changed,0);assert.equal((await row()).changed&1,0);
+await api('draw',{year:2026,issue:340,number:21,zodiac:'狗',drawnAt:new Date().toISOString()});
+file('history-shell.html','<iframe src="/history-moved.html"></iframe>');file('history-body.html',body('old','其他作者【绝杀一段】',7));file('history-moved.html',body('moved',name,3));
+assert.equal((await api('crawl',{id:source.id})).changed,1);
+let state=await api('state?source='+source.id),current=state.rows[0],storedSource=state.sources.find(s=>s.id===source.id);assert.equal(storedSource.selector,'#moved');assert.equal(storedSource.locator_identity,name);assert.ok(storedSource.content_url.endsWith('/history-moved.html'));assert.equal(current.raw,initial.raw);assert.equal(current.first_seen,initial.first_seen);assert.deepEqual(current.parsed.values,[4]);assert.equal(current.verdict.status,'win');assert.equal(current.retroactive,1);assert.equal(current.firstResult.verdict.status,'win');
+let revisions=(await api('history?id='+current.id)).filter(r=>r.change_type==='prediction');assert.equal(revisions.length,1);assert.equal(revisions[0].metadata.afterDraw,true);assert.equal(revisions[0].metadata.verdict.status,'loss');assert.deepEqual(revisions[0].metadata.before.values,[4]);assert.deepEqual(revisions[0].metadata.after.values,[3]);
+assert.equal((await api('crawl',{id:source.id})).changed,0);
+file('history-moved.html',body('moved',name,4));assert.equal((await api('crawl',{id:source.id})).changed,1);
+file('history-moved.html',body('moved',name,3));const concurrent=await Promise.all([api('crawl',{id:source.id}),api('crawl',{id:source.id})]);assert.equal(concurrent.reduce((n,r)=>n+r.changed,0),1);revisions=(await api('history?id='+current.id)).filter(r=>r.change_type==='prediction');assert.deepEqual(revisions.map(r=>r.version),[1,2,3]);
+// Turning relocation off preserves a strict manual selector; turning it on can
+// recover even when the training recommendation itself has changed.
+storedSource=(await api('state?source='+source.id)).sources.find(s=>s.id===source.id);await api('source',{...storedSource,collectNow:false,auto_relocate:false});
+file('history-shell.html','<iframe src="/history-again.html"></iframe>');file('history-moved.html','<div>栏目已迁移</div>');file('history-again.html',body('again',name,3));await api('crawl',{id:source.id},400);
+storedSource=(await api('state?source='+source.id)).sources.find(s=>s.id===source.id);assert.equal(storedSource.selector,'#moved');await api('source',{...storedSource,collectNow:false,auto_relocate:true});assert.equal((await api('state?source='+source.id)).sources.find(s=>s.id===source.id).selector,'#again');
+// A five-number source that was wrong cannot improve its original statistics by
+// replacing its recommendations after the result. Result-only edits do not count.
+const numeric=await api('source',{name:'真挚情怀【稳杀五码】',year:2026,kind:'杀号码',url:'',selector:'auto',interval:60,enabled:false});
+const original='341期:真挚情怀☯️稳杀五码☯️特开:？00中\n【03.12.15.19.27】';await api('crawl',{id:numeric.id,text:original});await api('draw',{year:2026,issue:341,number:12,zodiac:'羊',drawnAt:new Date().toISOString()});
+assert.equal((await api('crawl',{id:numeric.id,text:original.replace('？00','羊12')})).changed,0);
+const modified=original.replace('？00','羊12').replace('03.12.15.19.27','03.08.01.45.22');assert.equal((await api('crawl',{id:numeric.id,text:modified})).changed,1);
+const n=(await api('state?source='+numeric.id)).rows[0];assert.equal(n.verdict.status,'loss');assert.equal(n.firstResult.verdict.status,'loss');assert.equal(n.retroactive,1);assert.equal(n.raw,original);
+const nr=(await api('history?id='+n.id)).filter(r=>r.change_type==='prediction');assert.equal(nr.length,1);assert.equal(nr[0].metadata.verdict.status,'win');assert.equal((await api('crawl',{id:numeric.id,text:modified.replace('03.08.01.45.22','22 45 01 08 03')})).changed,0);
+assert.ok((await api('state?changes=after_draw')).rows.some(r=>r.id===n.id));assert.equal((await api('state?source='+numeric.id+'&changes=after_draw')).count,1);
+// Classify an old raw-only result update without deleting any legacy evidence.
+const legacy=await api('source',{name:'QA 旧版仅补开奖',year:2026,kind:'杀尾',url:'',selector:'auto',interval:60,enabled:false});await api('crawl',{id:legacy.id,text:'342期杀尾【4尾】开？00准'});const l=(await api('state?source='+legacy.id)).rows[0],legacyId=crypto.randomUUID();db.prepare('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)').run(legacyId,l.id,'342期杀尾【4尾】开狗21中',new Date().toISOString());db.prepare('UPDATE predictions SET changed=changed|1 WHERE id=?').run(l.id);
+assert.equal((await api('state?source='+legacy.id)).rows[0].latest_version,0);assert.equal((await api('history?id='+l.id)).length,0);assert.equal(db.prepare('SELECT change_type FROM revisions WHERE id=?').get(legacyId).change_type,'annotation');
+// Before-draw edits are versioned but do not receive the after-draw history tag.
+const early=await api('source',{name:'QA 开奖前修改',year:2026,kind:'杀尾',url:'',selector:'auto',interval:60,enabled:false});await api('crawl',{id:early.id,text:'343期杀尾【1尾】'});await api('crawl',{id:early.id,text:'343期杀尾【2尾】'});await api('draw',{year:2026,issue:343,number:11,zodiac:'猴',drawnAt:new Date().toISOString()});const er=(await api('state?source='+early.id)).rows[0];assert.equal(er.retroactive,0);assert.equal((await api('history?id='+er.id))[0].metadata.afterDraw,false);
+// An operator's parsing correction is an audit, not a website recommendation edit.
+const repaired=await api('source',{name:'QA 人工解析修正不算改料',year:2026,kind:'杀尾',url:'',selector:'auto',interval:60,enabled:false});await api('crawl',{id:repaired.id,text:'344期杀尾【1尾】'});const repairRow=(await api('state?source='+repaired.id)).rows[0];await api('revise',{id:repairRow.id,raw:'344期尾数【1尾】',kind:'尾数'});assert.equal((await api('crawl',{id:repaired.id,text:'344期杀尾【1尾】'})).changed,0);assert.equal((await api('state?source='+repaired.id)).rows[0].latest_version,0);
+// Existing discovery-time snapshots survive later draw corrections and legacy cleanup.
+await api('draw',{year:2026,issue:341,number:45,zodiac:'狗',drawnAt:new Date().toISOString()});
+db.prepare('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)').run(crypto.randomUUID(),n.id,modified.replace('羊12中','狗45准'),new Date().toISOString());
+const frozen=(await api('state?source='+numeric.id)).rows[0];assert.equal(frozen.verdict.status,'win');assert.equal(frozen.firstResult.verdict.status,'loss');const frozenVersions=(await api('history?id='+n.id)).filter(r=>r.change_type==='prediction');assert.equal(frozenVersions.length,1);assert.equal(frozenVersions[0].metadata.verdict.status,'win');
+assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');db.close();console.log('PASS: source identity relocation, changed iframe entry point, strict opt-out, semantic versions, result-only exclusion, first-result retention, reversal/concurrent dedupe, legacy classification and before/after-draw filtering.');

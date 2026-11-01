@@ -12,6 +12,7 @@ import {captureDefinitions,attachDefinitionMetadata,enrichDefinition} from './so
 import {scheduledCombinations} from './combination-service';
 import {sourceDefinitions} from './source-rules.mjs';
 import {verifyStoredResults} from './verification-service';
+import {ensureRecommendationHistory,recordRecommendationObservation} from './recommendation-history-service';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -68,15 +69,14 @@ export async function previewNumberReference(input:any){const year=validateRefer
 export async function previewSource(s:any){
  const sample=s.text||s.sample||'';
  const kindHint=/半头/.test(s.name+' '+sample)&&['自动识别','杀头','头数'].includes(s.kind)?inferKind(s.name+' '+sample):s.kind;
- let data:any;
- try{data=s.url?await sourceDownload(s.content_url||s.url):{text:String(s.text||''),url:'https://text-preview.invalid/'};}
- catch(e){if(s.content_url&&s.content_url!==s.url)data=await sourceDownload(s.url);else throw e;}
- const extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint},sourceDownload);
+ let extracted:any,lastError:any;const urls=s.url?[...new Set([s.content_url,s.url].filter(Boolean))]:[''];
+ for(const url of urls){try{const data=url?await sourceDownload(url):{text:String(s.text||''),url:'https://text-preview.invalid/'};extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0},sourceDownload);if(urls[0]!==url)extracted.relocated=true;break;}catch(error){lastError=error;}}
+ if(!extracted)throw lastError;
  const text=extracted.text;const kind=extracted.kind;
  const rows=splitPeriods(text).map((r:any)=>({...r,kind,parsed:{...parsePrediction(r.raw,kind,s.name),...(extracted.sourceRules&&(s.year===undefined||(r.explicitYear||+s.year+(r.yearOffset||0))===+s.year)?{sourceRules:extracted.sourceRules}:{})}}));
  if(!rows.length)throw Error('未识别到“001期”这样的期数记录。请调整内容选择器，或粘贴网页正文；动态渲染页面需要提供正文接口。');
  const keys=new Set();for(const r of rows){const key=(r.explicitYear||r.yearOffset)+'-'+r.issue;if(keys.has(key))throw Error('选中的内容包含重复期数，可能混入多个资料栏目。请把正文选择器缩小到单个作者的单项资料。');keys.add(key);}
- return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,followedPages:extracted.visited};
+ return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,identity:extracted.identity||s.locator_identity||'',relocated:!!extracted.relocated,followedPages:extracted.visited};
 }
 export async function saveSource(s:any){
  await finalizeCollections();
@@ -96,6 +96,7 @@ export async function saveSource(s:any){
  await run(`INSERT INTO sources(id,name,url,kind,year,selector,sample,content_url,schedule_mode,daily_time,enabled,interval,next_run,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,url=excluded.url,kind=excluded.kind,year=excluded.year,selector=excluded.selector,sample=excluded.sample,content_url=excluded.content_url,schedule_mode=excluded.schedule_mode,daily_time=excluded.daily_time,enabled=excluded.enabled,interval=excluded.interval,next_run=excluded.next_run,error=excluded.error`,sourceId,s.name.trim(),s.url||'',source.kind,+s.year,source.selector,sample,source.content_url,source.schedule_mode,source.daily_time,source.enabled,+s.interval,nextRun,warning?'待识别：'+warning:preview?null:previous?.error||null,previous?.created_at||now());
  await run('UPDATE sources SET cutoff_time=?,tracking_from=? WHERE id=?',s.cutoff_time||previous?.cutoff_time||'21:35',source.enabled?(previous?.enabled&&previous.tracking_from||now()):previous?.tracking_from||null,sourceId);
  await run('UPDATE sources SET folder_id=? WHERE id=?',folderId,sourceId);
+ await run('UPDATE sources SET locator_identity=?,auto_relocate=? WHERE id=?',preview?.identity||previous?.locator_identity||null,s.auto_relocate===undefined?(previous?.auto_relocate??1):(s.auto_relocate===false||s.auto_relocate===0?0:1),sourceId);
  let inserted=0;
  if(preview&&collectNow){const result=await ingest(source,preview.rows);inserted=result.inserted;await storeSnapshot(sourceId,preview.html);await run('UPDATE sources SET last_run=? WHERE id=?',now(),sourceId);}
  await log(s.name,warning?'warning':'success',warning?'配置已保存，自动采集未启用：'+warning:'栏目配置已保存；下次计划 '+plannedLabel(nextRun),inserted,sourceId);
@@ -117,11 +118,12 @@ export async function saveCollectionSchedule(input:any){
  await log('采集计划','success',schedule.enabled?'全站采集计划已更新：'+(schedule.mode==='daily'?'每天 '+schedule.time:'每 '+schedule.interval+' 分钟'):'已暂停全站自动采集');return schedule;
 }
 export async function ingest(source:any,rows:any[],historical=false){
+ await ensureRecommendationHistory();
  if(!(await list('SELECT id FROM sources WHERE id=? AND deleted_batch IS NULL',source.id)).length)throw Error('采集来源已删除');
  const old=await list('SELECT id,issue,year,raw,parsed,kind,changed,first_seen FROM predictions WHERE source_id=?',source.id);
  const captured=rows.find(r=>r.parsed?.sourceRules)?.parsed.sourceRules,profile=await captureDefinitions(source,captured);
  const hiddenPeriods=new Map((await list('SELECT year,issue,deleted_batch FROM collection_periods WHERE source_id=? AND deleted_batch IS NOT NULL',source.id)).map(p=>[p.year+'-'+p.issue,p.deleted_batch]));
- const existing=new Map(old.map(r=>[r.year+'-'+r.issue,r]));let inserted=0,changed=0;const commands=[];const stamp=now();
+ const existing=new Map(old.map(r=>[r.year+'-'+r.issue,r]));let inserted=0,changed=0;const commands=[],observations:any[]=[];const stamp=now();
  // Some older collectors retained a printed reference table inside the original
  // last row. Extract that already archived table even if the site removed the issue.
  for(const stored of old){
@@ -129,7 +131,7 @@ export async function ingest(source:any,rows:any[],historical=false){
   const definition=sourceDefinitions(stored.raw);if(!definition.entries.length)continue;
   const rules=enrichDefinition(previous.sourceRules,{...definition.rules,definitions:definition.entries.map(({index,...entry})=>entry),warnings:definition.warnings,capturedAt:stored.first_seen,version:'original:'+stored.id,origin:'首次采集原文内对照'});if(!rules)continue;
   stored.parsed=JSON.stringify({...previous,sourceRules:rules});
-  commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)',id(),stored.id,'[从首次留档原文提取对照；原文、推荐值和留档时间均保留]\n'+JSON.stringify(rules),stamp));
+  commands.push(stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) VALUES(?,?,?,?,'audit')",id(),stored.id,'[从首次留档原文提取对照；原文、推荐值和留档时间均保留]\n'+JSON.stringify(rules),stamp));
   commands.push(stmt('UPDATE predictions SET parsed=? WHERE id=?',stored.parsed,stored.id));
  }
  for(const r of rows){
@@ -138,15 +140,15 @@ export async function ingest(source:any,rows:any[],historical=false){
   if(found){
    const previous=JSON.parse(found.parsed),candidate:any=parsePrediction(r.raw,r.kind||source.kind,source.name),rules=enrichDefinition(previous.sourceRules,year===source.year?attachDefinitionMetadata(r.parsed?.sourceRules,profile):null);
    if(!(found.changed&2)&&rules&&previous.valid&&candidate.valid&&found.kind===(r.kind||source.kind)&&previous.values.length===candidate.values.length&&previous.values.every((v:any)=>candidate.values.includes(v))){
-    commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)',id(),found.id,'[来源对照补全；原文和推荐值不变；开奖后补全仅用于历史核验]\n'+JSON.stringify(rules),stamp));
+    commands.push(stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) VALUES(?,?,?,?,'audit')",id(),found.id,'[来源对照补全；原文和推荐值不变；开奖后补全仅用于历史核验]\n'+JSON.stringify(rules),stamp));
     commands.push(stmt('UPDATE predictions SET parsed=?,historical=CASE WHEN EXISTS(SELECT 1 FROM draws WHERE draws.year=predictions.year AND draws.issue=predictions.issue) THEN 1 ELSE historical END WHERE id=?',JSON.stringify({...previous,sourceRules:rules}),found.id));
    }
-   if(found.raw!==r.raw){commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM revisions WHERE prediction_id=? AND raw=?)',id(),found.id,r.raw,stamp,found.id,r.raw));commands.push(stmt('UPDATE predictions SET changed=changed|1,last_seen=? WHERE id=?',stamp,found.id));changed++;}else commands.push(stmt('UPDATE predictions SET last_seen=? WHERE id=?',stamp,found.id));continue;
+   observations.push({id:found.id,raw:r.raw,kind:r.kind||source.kind,parsed:{...candidate,...r.parsed?.sourceRules&&year===source.year?{sourceRules:attachDefinitionMetadata(r.parsed.sourceRules,profile)}:previous.sourceRules?{sourceRules:previous.sourceRules}:{}}});continue;
   }
   const kind=r.kind||source.kind;const p={...parsePrediction(r.raw,kind,source.name),...(r.parsed?.sourceRules&&year===source.year?{sourceRules:attachDefinitionMetadata(r.parsed.sourceRules,profile)}:{})};
   const predictionId=id(),deletedBatch=hiddenPeriods.get(key)||null;commands.push(stmt('INSERT OR IGNORE INTO predictions(id,source_id,year,issue,kind,raw,parsed,first_seen,last_seen,historical,deleted_batch) VALUES(?,?,?,?,?,?,?,?,?,?,?)',predictionId,source.id,year,r.issue,kind,r.raw,JSON.stringify(p),stamp,stamp,historical?1:0,deletedBatch));existing.set(key,{raw:r.raw,id:predictionId,parsed:JSON.stringify(p),kind,changed:0});if(!deletedBatch)inserted++;
  }
- await batches(commands);return {inserted,changed};
+ await batches(commands);for(const observation of observations){const result=await recordRecommendationObservation(observation.id,observation.raw,observation.kind,observation.parsed,stamp);if(result.changed)changed++;}return {inserted,changed};
 }
 export async function crawl(sourceId:string,text?:string,options:any={}){
  const [s]=await list('SELECT * FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId);if(!s)throw Error('找不到该来源');
@@ -156,7 +158,8 @@ export async function crawl(sourceId:string,text?:string,options:any={}){
   const counts=await ingest(s,result.rows,!!text);
   if(!text)await storeSnapshot(s.id,result.html);
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
-  await run('UPDATE sources SET kind=?,selector=?,content_url=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',now(),options.preserveSchedule?s.next_run:nextScheduledRun(effectiveSchedule(s,defaults)),s.id);
+  await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?s.next_run:nextScheduledRun(effectiveSchedule(s,defaults)),s.id);
+  if(result.relocated)await log('正文自动定位','success',`${s.name}：已确认同一栏目并自动更新正文位置`,1,s.id);
   await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更`,counts.inserted,s.id);return counts;
  }catch(e:any){await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),options.preserveSchedule?s.next_run:new Date(Date.now()+Math.max(30,s.interval*2)*60000).toISOString(),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
 }
@@ -274,6 +277,7 @@ export async function recheckResults(input:any={}){
  await finalizeCollections();return verifyStoredResults({name,source:input.source||undefined,year:query.get('year')||undefined});
 }
 export async function state(query:URLSearchParams){
+ await ensureRecommendationHistory();
  await finalizeCollections();
  const [sources,ps,drawRows,jobs,rules,drawSource,drawSync,scheduler,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,periods,referenceRows]=await Promise.all([
   list('SELECT * FROM sources WHERE deleted_batch IS NULL ORDER BY sort_order,created_at,name'),list('SELECT p.* FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.deleted_batch IS NULL AND s.deleted_batch IS NULL ORDER BY p.year DESC,p.issue DESC'),list('SELECT * FROM draws ORDER BY year DESC,issue DESC'),list('SELECT * FROM jobs ORDER BY created_at DESC LIMIT 80'),getSetting('rules'),getSetting('drawSource'),getSetting('drawSync'),getSetting('scheduler'),getSetting('collectionSchedule',DEFAULT_SCHEDULE),getSetting('historySource',DEFAULT_HISTORY),getSetting('historySync'),getSetting('drawSchedule',DEFAULT_DRAW_SCHEDULE),getSetting('drawScheduleState'),list("SELECT c.* FROM collection_periods c JOIN sources s ON s.id=c.source_id WHERE c.status='failed' AND c.deleted_batch IS NULL AND s.deleted_batch IS NULL"),list("SELECT value FROM settings WHERE key LIKE 'numberReference:%'")]);
@@ -282,11 +286,12 @@ export async function state(query:URLSearchParams){
  const dm=new Map(draws.map(d=>[d.year+'-'+d.issue,d]));const sm=new Map(sources.map(s=>[s.id,s]));
  const failures=new Map(periods.map(p=>[p.source_id+'-'+p.year+'-'+p.issue,p]));
  const effectiveRules=new Map([...new Set(ps.map(p=>p.year))].map(year=>[year,rulesWithReference(rules.years?.[year]||{},annualReferences.get(year))]));
- const all=ps.map(p=>{const draw=dm.get(p.year+'-'+p.issue),failure=failures.get(p.source_id+'-'+p.year+'-'+p.issue);return {...p,name:sm.get(p.source_id)?.name||'',parsed:JSON.parse(p.parsed),draw,collectionFailure:failure||null,backtest:!!p.historical||!!draw&&(!draw.drawn_at||p.first_seen>=draw.drawn_at),verdict:failure?{status:'collection_failed',reason:failure.reason}:evaluate(p,draw,effectiveRules.get(p.year)||{})};});
+ const all=ps.map(p=>{const draw=dm.get(p.year+'-'+p.issue),failure=failures.get(p.source_id+'-'+p.year+'-'+p.issue);return {...p,name:sm.get(p.source_id)?.name||'',parsed:JSON.parse(p.parsed),firstResult:p.first_verdict?JSON.parse(p.first_verdict):null,draw,collectionFailure:failure||null,backtest:!!p.historical||!!draw&&(!draw.drawn_at||p.first_seen>=draw.drawn_at),verdict:failure?{status:'collection_failed',reason:failure.reason}:evaluate(p,draw,effectiveRules.get(p.year)||{})};});
  const existing=new Set(ps.map(p=>p.source_id+'-'+p.year+'-'+p.issue));
  for(const failure of periods){if(existing.has(failure.source_id+'-'+failure.year+'-'+failure.issue))continue;const source=sm.get(failure.source_id);if(!source)continue;all.push({...failure,id:'failed:'+failure.id,name:source.name,kind:source.kind,raw:'',parsed:{valid:false,values:[],warnings:[]},first_seen:failure.finalized_at,last_seen:failure.finalized_at,historical:0,changed:0,draw:dm.get(failure.year+'-'+failure.issue),backtest:false,synthetic:true,collectionFailure:failure,verdict:{status:'collection_failed',reason:failure.reason}});}
  all.sort((a,b)=>b.year-a.year||Number(b.issue)-Number(a.issue));
  let filtered=all.filter(p=>(!query.get('source')||p.source_id===query.get('source'))&&(!query.get('kind')||p.kind===query.get('kind'))&&(!query.get('year')||p.year===Number(query.get('year')))&&(!query.get('from')||+p.issue>=Number(query.get('from')))&&(!query.get('to')||+p.issue<=Number(query.get('to')))&&(!query.get('q')||(p.name+' '+p.raw).includes(query.get('q')||'')));
+ if(query.get('changes')==='after_draw')filtered=filtered.filter(p=>!!p.retroactive);if(query.get('changes')==='any')filtered=filtered.filter(p=>p.latest_version>0);
  if(query.get('cohort')==='forward')filtered=filtered.filter(p=>!p.backtest);if(query.get('cohort')==='backtest')filtered=filtered.filter(p=>p.backtest);
  const stats=statistics(filtered);const ranking=sources.map(s=>({...s,stats:statistics(filtered.filter(p=>p.source_id===s.id))})).filter(s=>s.stats.total>0).sort((a,b)=>(b.stats.rate??-1)-(a.stats.rate??-1));if(query.get('status'))filtered=filtered.filter(p=>p.verdict.status===query.get('status'));
  const rank=sources.map(s=>({...s,stats:statistics(all.filter(p=>p.source_id===s.id))}));
@@ -302,10 +307,10 @@ export async function revise(predictionId:string,raw:string,kind:string){
  if(!KINDS.includes(kind)||kind==='自动识别')throw Error('请指定资料类型');
  const previousParsed=JSON.parse(p.parsed),parsed={...parsePrediction(raw,kind,p.name),...(previousParsed.sourceRules?{sourceRules:previousParsed.sourceRules}:{})};if(!parsed.valid)throw Error(parsed.warnings.join('；'));
  // Correct the interpretation, preserve the collected original and record the operator's input.
- await db().batch([stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) VALUES(?,?,?,?)',id(),p.id,'[人工解析修正]\n'+raw,now()),stmt('UPDATE predictions SET parsed=?,kind=?,historical=1,changed=changed|2 WHERE id=?',JSON.stringify(parsed),kind,p.id)]);return {parsed};
+ await db().batch([stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) VALUES(?,?,?,?,'audit')",id(),p.id,'[人工解析修正]\n'+raw,now()),stmt('UPDATE predictions SET latest_raw=COALESCE(latest_raw,raw),latest_parsed=COALESCE(latest_parsed,parsed),latest_kind=COALESCE(latest_kind,kind),parsed=?,kind=?,historical=1,changed=changed|2 WHERE id=?',JSON.stringify(parsed),kind,p.id)]);return {parsed};
 }
 export async function snapshot(sourceId:string){const [r]=await list('SELECT x.* FROM snapshots x JOIN sources s ON s.id=x.source_id WHERE x.source_id=? AND s.deleted_batch IS NULL ORDER BY x.created_at DESC LIMIT 1',sourceId);return r;}
-export async function history(predictionId:string){return list('SELECT r.* FROM revisions r JOIN predictions p ON p.id=r.prediction_id JOIN sources s ON s.id=p.source_id WHERE r.prediction_id=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL ORDER BY r.created_at',predictionId);}
+export async function history(predictionId:string){await ensureRecommendationHistory();return (await list("SELECT r.* FROM revisions r JOIN predictions p ON p.id=r.prediction_id JOIN sources s ON s.id=p.source_id WHERE r.prediction_id=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND r.change_type<>'annotation' ORDER BY r.created_at,r.rowid",predictionId)).map(r=>({...r,metadata:r.metadata?JSON.parse(r.metadata):null}));}
 async function syncMacauSocket(config:any){
  const frame=await download(config.frameUrl||'https://tbjl.sxhwqc.com:2025/am.html');
  const match=frame.text.match(/(?:let|const|var)\s+serverUrl\s*=\s*['"](wss:\/\/[^'"]+)['"]/g)?.filter(s=>!s.includes('webapi.'));

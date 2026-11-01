@@ -12,5 +12,6 @@ test('stored module selector continues collecting after training issue disappear
 });
 test('mismatched sample is rejected instead of collecting entire site',()=>{
  assert.throws(()=>extractModule(html,{sample:sample.replace('097期','123期'),name:'白小姐15码',kind:'15码'}),/没有匹配/);
- assert.throws(()=>extractModule(html,{selector:'#missing',sample,name:'白小姐15码',kind:'15码'}),/位置已变化/);
+ assert.equal(extractModule(html,{selector:'#missing',sample,name:'白小姐15码',kind:'15码'}).relocated,true);
+ assert.throws(()=>extractModule(html,{selector:'#missing',sample,name:'白小姐15码',kind:'15码',autoRelocate:false}),/位置已变化/);
 });

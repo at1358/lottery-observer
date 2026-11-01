@@ -50,7 +50,7 @@ async function handle(request:Request,context:any){
    case 'folders/reorder':result=await manage.reorder(body);break;
    case 'folders/delete':result=await manage.deleteFolder(body);break;
    case 'trash/restore':result=await manage.restore(body.id);break;
-   case 'preview':{const p=await svc.previewSource(body);result={kind:p.kind,selector:p.selector,contentUrl:p.url,followedPages:p.followedPages,rows:p.rows.slice(0,10),total:p.rows.length};break;}
+   case 'preview':{const p=await svc.previewSource(body);result={kind:p.kind,selector:p.selector,contentUrl:p.url,identity:p.identity,relocated:p.relocated,followedPages:p.followedPages,rows:p.rows.slice(0,10),total:p.rows.length};break;}
    case 'source':result=await svc.saveSource(body);break;
    case 'recheck':result=await svc.recheckResults(body);break;
    case 'wecom/save':result=await savePush(body);break;
@@ -76,7 +76,7 @@ async function handle(request:Request,context:any){
     else if(body.operation==='crawlSource')result=await svc.crawl(body.id);
     else if(body.operation==='runCombinations')result=await scheduledCombinations();
     else if(body.operation==='runDrawUpdate'){result=await svc.scheduledDrawUpdate();await svc.finalizeCollections();}
-    else if(body.operation==='previewSource'){const p=await svc.previewSource(body.source);result={kind:p.kind,total:p.rows.length,contentUrl:p.url,followedPages:p.followedPages,first:p.rows[0],last:p.rows.at(-1)};}
+    else if(body.operation==='previewSource'){const p=await svc.previewSource(body.source);result={kind:p.kind,total:p.rows.length,contentUrl:p.url,identity:p.identity,relocated:p.relocated,followedPages:p.followedPages,first:p.rows[0],last:p.rows.at(-1)};}
     else throw Error('未知后台操作');break;
    }
    case 'revise':result=await svc.revise(body.id,body.raw,body.kind);break;

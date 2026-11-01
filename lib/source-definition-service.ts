@@ -41,7 +41,7 @@ export async function restoreArchivedDefinitions(sourceId?:string,year?:number){
   const profile=profiles.get(key),own=sourceDefinitions(row.raw),current=own.entries.length?{...own.rules,definitions:own.entries.map(({index,...entry})=>entry),warnings:own.warnings,capturedAt:row.first_seen,origin:'首次采集原文内对照'}:profile?{...profile.rules,capturedAt:profile.capturedAt,version:profile.version,origin:profile.origin||'已留档栏目对照'}:null;
   const rules=enrichDefinition(parsed.sourceRules,current);if(!rules)continue;
   const updated=JSON.stringify({...parsed,sourceRules:rules}),at=new Date().toISOString();
-  commands.push(stmt('INSERT INTO revisions(id,prediction_id,raw,created_at) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM predictions WHERE id=? AND parsed=?)',crypto.randomUUID(),row.id,'[离线复核补全已留档栏目对照；保留原文、推荐值和首次采集时间]\n'+JSON.stringify(rules),at,row.id,row.parsed));
+  commands.push(stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) SELECT ?,?,?,?,'audit' WHERE EXISTS(SELECT 1 FROM predictions WHERE id=? AND parsed=?)",crypto.randomUUID(),row.id,'[离线复核补全已留档栏目对照；保留原文、推荐值和首次采集时间]\n'+JSON.stringify(rules),at,row.id,row.parsed));
   commands.push(stmt('UPDATE predictions SET parsed=?,historical=CASE WHEN EXISTS(SELECT 1 FROM draws WHERE draws.year=predictions.year AND draws.issue=predictions.issue) THEN 1 ELSE historical END WHERE id=? AND parsed=?',updated,row.id,row.parsed));restored++;
  }
  await batches(commands);return restored;

@@ -1,9 +1,11 @@
 import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {sql} from 'drizzle-orm';
 export const sources = sqliteTable('sources', {
  id: text('id').primaryKey(), name: text('name').notNull(), url: text('url').notNull().default(''),
  kind: text('kind').notNull(), year: integer('year').notNull(), selector: text('selector').notNull().default('body'),
  sample: text('sample').notNull().default(''),
  contentUrl: text('content_url').notNull().default(''),
+ locatorIdentity: text('locator_identity'), autoRelocate: integer('auto_relocate').notNull().default(1),
  scheduleMode: text('schedule_mode').notNull().default('inherit'),
  dailyTime: text('daily_time').notNull().default('16:30'),
  cutoffTime: text('cutoff_time').notNull().default('21:35'),
@@ -18,6 +20,7 @@ export const predictions = sqliteTable('predictions', {
  parsed: text('parsed').notNull(), firstSeen: text('first_seen').notNull(), lastSeen: text('last_seen').notNull(),
  historical: integer('historical').notNull().default(0), changed: integer('changed').notNull().default(0),
  deletedBatch: text('deleted_batch'),
+ latestRaw:text('latest_raw'),latestParsed:text('latest_parsed'),latestKind:text('latest_kind'),latestVersion:integer('latest_version').notNull().default(0),retroactive:integer('retroactive').notNull().default(0),firstVerdict:text('first_verdict'),
 }, t => [uniqueIndex('prediction_key').on(t.sourceId,t.year,t.issue)]);
 export const draws = sqliteTable('draws', {
  id: text('id').primaryKey(), year: integer('year').notNull(), issue: text('issue').notNull(),
@@ -32,7 +35,8 @@ export const jobs = sqliteTable('jobs', {
 });
 export const revisions = sqliteTable('revisions', {
  id: text('id').primaryKey(), predictionId: text('prediction_id').notNull(), raw: text('raw').notNull(), createdAt: text('created_at').notNull(),
-});
+ changeType:text('change_type').notNull().default('legacy'),metadata:text('metadata'),version:integer('version'),
+},t=>[uniqueIndex('revisions_prediction_version').on(t.predictionId,t.version).where(sql`${t.version} IS NOT NULL`)]);
 export const snapshots = sqliteTable('snapshots', {
  id: text('id').primaryKey(), sourceId: text('source_id').notNull(), html: text('html').notNull(), createdAt: text('created_at').notNull(),
 });

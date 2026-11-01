@@ -2,10 +2,13 @@ import {list,run} from './db';
 import {evaluate,statistics} from './domain.mjs';
 import {rulesWithReference} from './number-reference.mjs';
 import {restoreArchivedDefinitions} from './source-definition-service';
+import {ensureRecommendationHistory,resolveRevisionVerdicts} from './recommendation-history-service';
 
 export async function verifyStoredResults(input:any={}){
+ await ensureRecommendationHistory();
  const year=input.year?Number(input.year):null;
  const restored=await restoreArchivedDefinitions(input.source,year||undefined);
+ if(year)await resolveRevisionVerdicts(year,input.issues);
  const args=[...(input.source?[input.source]:[]),...(year?[year]:[]),...(input.issues||[])];
  const where=`${input.source?' AND p.source_id=?':''}${year?' AND p.year=?':''}${input.issues?.length?` AND p.issue IN (${input.issues.map(()=>'?').join(',')})`:''}`;
  const [rows,draws,refs,ruleRows,failures]=await Promise.all([
