@@ -1,5 +1,6 @@
 import {list,run} from './db';
 import {emptyReference,validateReference,validateReferenceYear,referenceCoverage} from './number-reference.mjs';
+import {refreshCustomMaterials} from './custom-material-service';
 const key=(year:number)=>'numberReference:'+year;
 export async function readNumberReference(value:any){
  const year=validateReferenceYear(value),rows=await list('SELECT value FROM settings WHERE key=?',key(year));
@@ -16,5 +17,6 @@ export async function saveNumberReference(input:any){
  const result=existing?await run('UPDATE settings SET value=? WHERE key=? AND value=?',value,key(profile.year),existing.value):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key(profile.year),value);
  if(!result.meta.changes)throw Object.assign(Error('这份对照表已被其他操作更新，请重新载入后再保存'),{status:409});
  await run('INSERT INTO jobs(id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),'号码对照','success',`${profile.year} 年号码对照已保存${profile.enabled?'并用于核验':'；未启用核验'}；来源：${profile.contentUrl||profile.url||'手动添加'}`,referenceCoverage(profile).zodiacs.count,updatedAt);
+ await refreshCustomMaterials(profile.year);
  return readNumberReference(profile.year);
 }

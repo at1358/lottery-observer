@@ -15,6 +15,7 @@ import {sourceDefinitions} from './source-rules.mjs';
 import {verifyStoredResults} from './verification-service';
 import {ensureRecommendationHistory,recordRecommendationObservation} from './recommendation-history-service';
 import {repairKingdomInterpretations} from './kingdom-repair-service';
+import {customMaterialSummaries} from './custom-material-service';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -311,7 +312,7 @@ export async function state(query:URLSearchParams){
  const issues=[...new Set(filtered.map(p=>p.year+'-'+p.issue))].sort().slice(-60);
  const trend=issues.map(issue=>({issue,...statistics(filtered.filter(p=>p.year+'-'+p.issue===issue))}));
  const nextCollection=sources.filter(s=>s.enabled&&s.next_run).map(s=>s.next_run).sort()[0]||null;
- return {runtime:(env as any).AUTH_MODE==='standalone'?'standalone':'sites',overviewDisplay:await getSetting('overviewDisplay',{range:20,chart:'area',showLoss:true}),folders:await listFolders(),trash:await trashList(),sources:rank,ranking,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,stats,global:statistics(all),draws,jobs,rules,drawSource,drawSync,scheduler,trend,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,scheduleInfo:{nextRun:nextCollection,estimatedRun:nextCollection?estimatedExecution(nextCollection,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'):null,nextCheck:estimatedExecution(now(),Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')}};
+ return {runtime:(env as any).AUTH_MODE==='standalone'?'standalone':'sites',customMaterials:await customMaterialSummaries(),overviewDisplay:await getSetting('overviewDisplay',{range:20,chart:'area',showLoss:true}),folders:await listFolders(),trash:await trashList(),sources:rank,ranking,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,stats,global:statistics(all),draws,jobs,rules,drawSource,drawSync,scheduler,trend,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,scheduleInfo:{nextRun:nextCollection,estimatedRun:nextCollection?estimatedExecution(nextCollection,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'):null,nextCheck:estimatedExecution(now(),Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')}};
 }
 export async function revise(predictionId:string,raw:string,kind:string){
  await finalizeCollections();

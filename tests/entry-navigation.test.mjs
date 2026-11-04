@@ -62,3 +62,14 @@ test('encrypted entry navigation rejects non-literal configuration and unannounc
  assert.deepEqual(navigationLinks('<script>'+router+'</script>','https://site.example/#admin','无敌牛哥'),[]);
  assert.deepEqual(navigationLinks('<script>'+router+'</script>','https://site.example/#dh-../../secret','无敌牛哥'),[]);
 });
+const prefixRouter='const raw=location.hash.slice(1);const validPages=["dh","zs","xg"];const pageKey=pageKeyRaw.toLowerCase();const matchedBase = validPages.find(v => pageKey.startsWith(v));if(!matchedBase)return;iframe.src = `/payloads/${matchedBase}.html${suffix ? "#" + encodeURIComponent(suffix) : ""}`;';
+test('13349 prefix router resolves only its announced base path and preserves safe fragments',async()=>{
+ assert.equal(navigationLinks('<script>'+prefixRouter+'</script>','https://site.example/#dh2026-new','特围㊱码')[0].url,'https://site.example/payloads/dh.html#new');
+ const pages={'https://site.example/#dh':loader,'https://site.example/assets/main.js?v=7011':prefixRouter,'https://site.example/payloads/dh.html':'<iframe src="/article.html"></iframe>','https://site.example/article.html':content};
+ const result=await discoverEntry('https://site.example/#dh',options,async url=>{assert.ok(url in pages,url);return {url,text:pages[url]};});assert.equal(result.url,'https://site.example/article.html');
+ for(const hash of ['admin','dh/../../private','dh-../../secret'])assert.deepEqual(navigationLinks('<script>'+prefixRouter+'</script>','https://site.example/#'+hash,'特围㊱码'),[]);
+});
+test('a temporary entry fetch failure retries once without changing URL or exceeding the budget',async()=>{
+ let calls=0;const result=await discoverEntry('https://site.example/article',options,async url=>{if(++calls===1)throw Error('fetch failed');return {url,text:content};});assert.equal(calls,2);assert.match(result.text,/305期/);
+ calls=0;await assert.rejects(discoverEntry('https://site.example/',options,async()=>{calls++;throw Error('fetch failed');},{maxRequests:1}),/已检查 1 个页面/);assert.equal(calls,1);
+});
