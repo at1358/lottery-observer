@@ -4,3 +4,4 @@
 .self-history-coverage{padding:13px 16px;background:#edf5ee;border:1px solid #dce8dd;border-radius:8px;font-size:11px;color:#68816d;line-height:1.9;margin:-4px 0 22px}
 
 .self-nav-heading{position:relative}.sidebar nav .self-nav-heading>button:first-child{padding-right:34px}.sidebar nav .self-nav-heading>.self-menu-toggle{position:absolute;right:5px;top:6px;width:27px;height:27px;display:grid;place-items:center;padding:0;margin:0;border-radius:5px;color:#a0bdae}@media(max-width:680px){.sidebar nav .self-nav-heading>button:first-child{padding-right:14px}.sidebar nav .self-nav-heading>.self-menu-toggle{display:none}}
+.sidebar nav{grid-template-columns:minmax(0,1fr);overflow-x:hidden}.sidebar nav>div,.self-nav-heading,.self-submenu{min-width:0}.self-nav-heading{width:100%}
