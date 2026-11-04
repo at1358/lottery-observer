@@ -6,6 +6,8 @@ import {beijingDate} from './wecom-push.mjs';
 import {sendRobotContent} from './wecom';
 import {combinationPeriodReport} from './combination-results.mjs';
 import {collectionWindowOpen,nextRecoveryAt} from './collection-retry.mjs';
+import {customCombinationData,customMaterialSummaries,refreshCustomMaterial} from './custom-material-service';
+import {materialRuleKey} from './custom-material.mjs';
 function refuse(code:string,message:string):never{throw Object.assign(Error(message),{code});}
 const stamp=()=>new Date().toISOString(),planKey=(id:string)=>'combinationPlan:'+id,runtimeKey=(id:string)=>'combinationRuntime:'+id;
 async function setting(key:string,fallback:any={}){const [r]=await list('SELECT value FROM settings WHERE key=?',key);return r?JSON.parse(r.value):fallback;}
@@ -21,13 +23,16 @@ async function updateRuntime(id:string,patch:any){
 function nextCalculation(plan:any,at=Date.now()){return plan.calculation.mode==='interval'?new Date(at+plan.calculation.interval*60000).toISOString():nextScheduledRun({...plan.calculation,interval:Math.max(60,plan.calculation.interval)},at);}
 function tomorrow(plan:any){const day=beijingDate(Date.now()+86400000);return new Date(day+'T'+(plan.calculation.mode==='daily'?plan.calculation.time:'00:00')+':00+08:00').toISOString();}
 const sourceIds=(p:any)=>[...new Set<string>([...(p.baseMode==='source'?[p.baseSourceId]:[]),...p.steps.filter((s:any)=>s.type==='source').map((s:any)=>s.sourceId)])];
+const customIds=(p:any)=>[...new Set<string>(p.steps.filter((s:any)=>s.type==='custom').map((s:any)=>s.materialId))];
 const algorithm=(p:any)=>({year:p.year,baseMode:p.baseMode||(p.baseNumbers.length?'manual':'all'),baseSourceId:p.baseSourceId||'',baseNumbers:p.baseNumbers,steps:p.steps});
+async function combinationAlgorithm(plan:any){const ids=customIds(plan);if(!ids.length)return algorithm(plan);const values=await customMaterialSummaries();return {...algorithm(plan),customRules:ids.sort().map(id=>{const p=values.find(p=>p.id===id);return {id,ruleKey:p?materialRuleKey(p):null};})};}
 export async function saveCombination(input:any,canManagePush:boolean){
  const value=validateCombination(input),id=input.id||crypto.randomUUID(),old=input.id?await findPlan(input.id):null;
  if((value.push.enabled||old?.push.enabled)&&!canManagePush)throw Error('企业微信群推送只能由管理员配置；请联系管理员编辑该组合');
  if(old&&input.revision!==old.revision){const e:any=Error('组合已被其他页面修改，请重新载入后保存');e.status=409;throw e;}
  if(!old&&(await plans()).length>=50)throw Error('最多保存50个组合');
  const ids=sourceIds(value);for(const sourceId of ids)if(!(await list('SELECT id FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId)).length)throw Error('所选采集栏目已删除，请重新选择');
+ for(const materialId of customIds(value)){const p=await setting('customMaterialPlan:'+materialId,null);if(!p)throw Error('所选自建资料不存在');if(p.year!==value.year)throw Error('自建资料年份与组合年份不一致，请选择同年份栏目');}
  if(value.push.enabled&&!(await setting('wecomPush')).webhook)throw Error('请先在企业微信推送菜单配置机器人 Webhook');
  const now=stamp(),plan={...value,id,revision:crypto.randomUUID(),createdAt:old?.createdAt||now,updatedAt:now};
  const serialized=JSON.stringify(plan),saved=old?await run('UPDATE settings SET value=? WHERE key=? AND value=?',serialized,planKey(id),JSON.stringify(old)):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',planKey(id),serialized);if(!saved.meta.changes)throw Error('组合存在并发修改，请重新载入');
@@ -39,6 +44,13 @@ export async function saveCombinationPush(input:any){const old=await findPlan(in
 async function target(plan:any,input:any={}){
  if(input.issue){const issue=String(Number(input.issue)).padStart(3,'0');if(!/^\d{3}$/.test(issue)||+issue<1||+issue>366||Number(input.year||plan.year)!==plan.year)throw Error('请输入同年份有效期数');return periodInfo(plan.year,issue);}
  if(plan.targetMode==='fixed')return periodInfo(plan.year,plan.fixedIssue);
+ if(customIds(plan).length&&['latest','common'].includes(plan.targetMode)){
+  const current=await todayPeriod(plan);if(current.issue&&!current.drawn)return current;
+  const [last]=await list('SELECT MAX(CAST(issue AS INTEGER)) AS issue FROM draws WHERE year=?',plan.year),cap=last?.issue?Math.min(366,last.issue+1):0,ids=sourceIds(plan),data=await customCombinationData(customIds(plan),plan.year);const sets:Set<string>[]=[];
+  for(const id of ids)sets.push(new Set((await list('SELECT issue FROM predictions WHERE source_id=? AND year=? AND deleted_batch IS NULL',id,plan.year)).map(p=>p.issue)));
+  for(const id of customIds(plan))sets.push(new Set(data.records.filter(r=>r.materialId===id&&+r.issue<=cap).map(r=>r.issue)));
+  const values=[...new Set<string>(sets.flatMap(set=>[...set]))].filter(issue=>plan.targetMode==='latest'||sets.every(set=>set.has(issue))).sort((a,b)=>+b-+a);if(!values.length)refuse('NO_PERIOD','所选采集或自建资料暂无可用期数，请同步开奖或手动指定期数');return periodInfo(plan.year,values[0]);
+ }
  if(plan.targetMode==='latest'){
   const ids=sourceIds(plan);if(!ids.length)refuse('NO_PERIOD','按资料最新一期计算时，请至少选择一个采集栏目，或手动指定期数');
   const [row]=await list(`SELECT MAX(p.issue) AS issue FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.year=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND p.source_id IN (${ids.map(()=>'?').join(',')})`,plan.year,...ids);
@@ -62,7 +74,7 @@ async function todayPeriod(plan:any){
  return {year:plan.year,issue:null,date:today,drawn:false};
 }
 async function saveResult(plan:any,period:any,computed:any,collection:any[],persist=true){
- const algorithmHash=await hash(algorithm(plan)),fingerprint=await hash({algorithm:algorithmHash,year:period.year,issue:period.issue,trace:computed.trace,errors:computed.errors});
+ const algorithmHash=await hash(await combinationAlgorithm(plan)),fingerprint=await hash({algorithm:algorithmHash,year:period.year,issue:period.issue,trace:computed.trace,errors:computed.errors});
  const key=(period.issue?'combinationResult:':'combinationAttempt:')+plan.id+':'+period.year+':'+(period.issue||period.date)+':'+fingerprint;
  const result={...computed,collection,id:key,planId:plan.id,planName:plan.name,planRevision:plan.revision||null,algorithmHash,fingerprint,periodDate:period.date,drawn:period.drawn,historical:period.drawn||!!computed.historical,createdAt:stamp()};
  if(!persist)return {...result,preview:true};
@@ -91,8 +103,8 @@ async function storedCalculation(plan:any,period:any){
  const ids=sourceIds(plan),predictions=ids.length?await list(`SELECT * FROM predictions WHERE year=? AND issue=? AND deleted_batch IS NULL AND source_id IN (${ids.map(()=>'?').join(',')})`,period.year,period.issue,...ids):[];
  const failures=await list("SELECT source_id,year,issue FROM collection_periods WHERE year=? AND issue=? AND status='failed' AND deleted_batch IS NULL",period.year,period.issue);
  const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference);
- const computed=computeCombination(plan,{...period,predictions,sources,rules:effective,failures});
- return {...computed,historical:predictions.some(p=>p.historical)};
+ const [draw]=await list('SELECT number,zodiac FROM draws WHERE year=? AND issue=?',period.year,period.issue),custom=await customCombinationData(customIds(plan),plan.year),computed=computeCombination(plan,{...period,predictions,sources,rules:effective,failures,customMaterials:custom.materials,customRecords:custom.records,draw});
+ return {...computed,historical:predictions.some(p=>p.historical)||custom.records.some(r=>r.issue===period.issue&&r.historical)};
 }
 async function recoveryState(plan:any,result:any,persist:boolean){
  if(!persist)return result;
@@ -101,6 +113,7 @@ async function recoveryState(plan:any,result:any,persist:boolean){
  return result;
 }
 async function execute(plan:any,input:any={},persist=true,refresh=true){
+ for(const id of customIds(plan))await refreshCustomMaterial(id);
  let period:any,before:any=null;
  try{period=await target(plan,input);if(input.automatic&&plan.targetMode==='common'){const current=await todayPeriod(plan);if(current.issue&&!current.drawn&&(!period.date||period.date<current.date||Number(period.issue)<Number(current.issue)))period=current;}before=await storedCalculation(plan,period);}catch(e:any){if(e.code!=='NO_PERIOD')throw e;}
  const onlyMissing=input.onlyMissing||plan.calculation.refreshSources===false;
@@ -121,11 +134,13 @@ async function periodReport(plan:any,snapshots:any[]){
  const ids=sourceIds(plan),sources=await list('SELECT id,name,kind,year,deleted_batch FROM sources WHERE deleted_batch IS NULL'),draws=await list('SELECT * FROM draws WHERE year=?',plan.year);
  const predictions=ids.length?await list(`SELECT * FROM predictions WHERE year=? AND deleted_batch IS NULL AND source_id IN (${ids.map(()=>'?').join(',')})`,plan.year,...ids):[];
  const failures=await list("SELECT source_id,year,issue FROM collection_periods WHERE year=? AND status='failed' AND deleted_batch IS NULL",plan.year);
- const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference),algorithmHash=await hash(algorithm(plan));
- const current=snapshots.filter(r=>r.algorithmHash===algorithmHash),issues=[...new Set<string>([...predictions.map(p=>p.issue),...failures.filter(f=>ids.includes(f.source_id)).map(f=>f.issue),...current.map(r=>r.issue),...(!ids.length?draws.map(d=>d.issue):[])])].sort();
+ const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference),algorithmHash=await hash(await combinationAlgorithm(plan));
+ const custom=await customCombinationData(customIds(plan),plan.year),cap=Math.min(366,Math.max(0,...draws.map(d=>+d.issue))+1),current=snapshots.filter(r=>r.algorithmHash===algorithmHash),issues=[...new Set<string>([...predictions.map(p=>p.issue),...failures.filter(f=>ids.includes(f.source_id)).map(f=>f.issue),...custom.records.filter(r=>+r.issue<=cap).map(r=>r.issue),...current.map(r=>r.issue),...(!ids.length?draws.map(d=>d.issue):[])])].sort();
  const grouped=new Map<string,any[]>();for(const p of predictions){if(!grouped.has(p.issue))grouped.set(p.issue,[]);grouped.get(p.issue)!.push(p);}
- const backtests=issues.filter(issue=>!current.some(r=>r.issue===issue&&r.status==='complete')).map(issue=>({...computeCombination(plan,{year:plan.year,issue,predictions:grouped.get(issue)||[],sources,rules:effective,failures:failures.filter(f=>f.issue===issue)}),id:'backtest:'+plan.id+':'+issue,planId:plan.id,planName:plan.name,algorithmHash,createdAt:stamp(),historical:true,backtest:true,collection:[]}));
- return combinationPeriodReport([...current,...backtests],draws);
+ const available=new Map(issues.map(issue=>[issue,computeCombination(plan,{year:plan.year,issue,predictions:grouped.get(issue)||[],sources,rules:effective,failures:failures.filter(f=>f.issue===issue),customMaterials:custom.materials,customRecords:custom.records,draw:draws.find(d=>d.issue===issue)})]));
+ const eligible=current.map(r=>{const now=available.get(r.issue);return now?.status==='blocked'?{...r,status:'blocked',numbers:[],total:null,errors:now.errors,trace:now.trace}:r;});
+ const backtests=issues.filter(issue=>!eligible.some(r=>r.issue===issue&&r.status==='complete')).map(issue=>({...available.get(issue),id:'backtest:'+plan.id+':'+issue,planId:plan.id,planName:plan.name,algorithmHash,createdAt:stamp(),historical:true,backtest:true,collection:[]}));
+ return combinationPeriodReport([...eligible,...backtests],draws);
 }
 export async function combinationState(selectedId?:string,selectedIssue?:string){
  const values=await plans(),sources=await list('SELECT id,name,kind,year,url,error,enabled FROM sources WHERE deleted_batch IS NULL ORDER BY sort_order,created_at'),runtimeRows=await list("SELECT key,value FROM settings WHERE key LIKE 'combinationRuntime:%'"),profiles=(await list("SELECT value FROM settings WHERE key LIKE 'sourceReference:%'")).map(r=>JSON.parse(r.value));
@@ -136,7 +151,7 @@ export async function combinationState(selectedId?:string,selectedIssue?:string)
  const periodResult=selectedIssue?report?.periods.find((r:any)=>r.issue===String(Number(selectedIssue)).padStart(3,'0'))||null:null;
  const compactReport=report?{...report,periods:report.periods.map((r:any)=>({id:r.id,year:r.year,issue:r.issue,status:r.status,total:r.total,numbers:r.numbers,createdAt:r.createdAt,backtest:r.backtest,historical:r.historical,settlement:r.settlement,snapshotCount:r.snapshotCount,errors:r.errors}))}:null;
  const decorated=[];for(const plan of values){const runtime=runtimes.get(plan.id)||{},last=runtime.lastResultId?await setting(runtime.lastResultId,null):null;decorated.push({...plan,runtime,lastResult:last?{id:last.id,issue:last.issue,year:last.year,status:last.status,total:last.total,numbers:last.numbers,createdAt:last.createdAt,errors:last.errors}:null});}
- return {report:compactReport,periodResult,currentResult,plans:decorated,sources,profiles,results:resultRows.map(r=>JSON.parse(r.value)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
+ return {report:compactReport,periodResult,currentResult,plans:decorated,sources,customMaterials:await customMaterialSummaries(),profiles,results:resultRows.map(r=>JSON.parse(r.value)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
 }
 async function resultToSend(plan:any,selectedId?:string,manual=false){
  let result=selectedId?await setting(selectedId,null):null;
@@ -144,7 +159,9 @@ async function resultToSend(plan:any,selectedId?:string,manual=false){
  if(!result){const r=await setting(runtimeKey(plan.id));if(r.lastResultId)result=await setting(r.lastResultId,null);}
  if(!result)refuse('NO_RESULT','本期尚未保存计算结果');
  if(result.planId!==plan.id)refuse('BAD_SELECTION','所选结果不属于当前组合');
- if(result.algorithmHash!==await hash(algorithm(plan)))refuse('OUTDATED_ALGORITHM','组合条件已修改，请重新计算后推送');
+ if(result.algorithmHash!==await hash(await combinationAlgorithm(plan)))refuse('OUTDATED_ALGORITHM','组合或自建资料规则已修改，请重新计算后推送');
+ const custom=await customCombinationData(customIds(plan),result.year);
+ for(const item of result.trace.filter((t:any)=>t.customMaterialId)){const row=custom.records.find(r=>r.materialId===item.customMaterialId&&r.issue===result.issue);if(!row?.parsed.valid||row.recordKey!==item.customRecordKey)refuse('INPUT_FAILED',item.label+'：自建资料缺失或依据已变化，请重新计算');}
  if(result.status!=='complete'){
   if(!manual&&result.periodDate!==beijingDate())refuse('NOT_TODAY','尚无当天的完整计算记录');
   return {...result,notificationHistory:!!result.drawn||result.periodDate!==beijingDate()};
@@ -164,10 +181,11 @@ export async function pushCombination(input:any,manual=true){
  const plan=await findPlan(input.id);let result:any;
  let runtime=await setting(runtimeKey(plan.id)),last=runtime.lastResultId?await setting(runtime.lastResultId,null):null;
  const selected=input.resultId?await setting(input.resultId,null):null;
+ const changedCustomRule=customIds(plan).length>0&&last&&last.algorithmHash!==await hash(await combinationAlgorithm(plan));
  // Before reporting missing data, first collect the missing columns and retry.
  // Existing successful/current snapshots and explicit historical selections are
  // kept intact; failed attempts wait a full hour before the next automatic try.
- if((!input.resultId||selected?.status==='blocked'&&selected.periodDate===beijingDate())&&(!last||last.status!=='complete'||last.periodDate!==beijingDate())&&canRecover(plan)&&recoveryDue(runtime)){
+ if((!input.resultId||selected?.status==='blocked'&&selected.periodDate===beijingDate())&&(!last||last.status!=='complete'||last.periodDate!==beijingDate()||changedCustomRule)&&canRecover(plan)&&(recoveryDue(runtime)||changedCustomRule)){
   await execute(plan,{onlyMissing:true,automatic:!manual});input={...input,resultId:undefined};
  }
  try{result=await resultToSend(plan,input.resultId,manual);}catch(e:any){
