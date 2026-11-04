@@ -18,6 +18,7 @@ globalThis.fetch=async(input,options)=>{
   return name?new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/'+name)),{headers:{'Content-Type':'text/html; charset=utf-8'}}):new Response('Not found',{status:404});
  }
  if(url.hostname==='qa-articles.example'){
+  if(url.pathname==='/kingdom.html')return new Response(readFileSync(new URL('kingdom-zodiacs.html',import.meta.url)),{headers:{'Content-Type':'text/html; charset=utf-8'}});
   if(['/history-shell.html','/history-body.html','/history-moved.html','/history-again.html'].includes(url.pathname))return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/'+url.pathname.slice(1))),{headers:{'Content-Type':'text/html; charset=utf-8'}});
   if(url.pathname==='/draws.json')return Response.json([{year:2026,issue:302,number:8,zodiac:'羊',drawn_at:'2026-10-29T21:35:00+08:00'}]);
   if(['/latest-base.html','/latest-tail.html'].includes(url.pathname))return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/'+url.pathname.slice(1).replace('.html','.txt'))),{headers:{'Content-Type':'text/html; charset=utf-8'}});

@@ -14,6 +14,7 @@ import {scheduledCombinations} from './combination-service';
 import {sourceDefinitions} from './source-rules.mjs';
 import {verifyStoredResults} from './verification-service';
 import {ensureRecommendationHistory,recordRecommendationObservation} from './recommendation-history-service';
+import {repairKingdomInterpretations} from './kingdom-repair-service';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -223,6 +224,7 @@ export async function saveDrawSchedule(input:any){
  await putSetting('drawSchedule',value);await putSetting('drawScheduleState',{nextRun:nextScheduledRun(value)});return value;
 }
 export async function finalizeCollections(){
+ await repairKingdomInterpretations();
  const [sources,predictions,draws,socket,expected,finalized]=await Promise.all([list('SELECT * FROM sources WHERE enabled=1 AND tracking_from IS NOT NULL AND deleted_batch IS NULL'),list('SELECT * FROM predictions'),list('SELECT year,issue,draw_date FROM draws WHERE draw_date IS NOT NULL'),getSetting('drawSocket'),getSetting('expectedDrawPeriods'),list('SELECT source_id,year,issue FROM collection_periods')]);
  const periods=new Map(draws.map(d=>[d.year+'-'+d.issue,{year:d.year,issue:d.issue,date:d.draw_date}]));
  for(const [key,value] of Object.entries(expected))periods.set(key,value as any);

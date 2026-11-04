@@ -2,6 +2,7 @@ import {db,list,run,stmt} from './db';
 import {evaluate} from './domain.mjs';
 import {rulesWithReference} from './number-reference.mjs';
 import {interpretation,compareRecommendations,afterDrawStatus} from './recommendation-history.mjs';
+import {repairKingdomInterpretations} from './kingdom-repair-service';
 const read=(value:any,fallback:any=null)=>{try{return typeof value==='string'?JSON.parse(value):value||fallback;}catch{return fallback;}};
 async function context(year:number,issue:string){
  const [draws,settings]=await Promise.all([list('SELECT * FROM draws WHERE year=? AND issue=?',year,issue),list("SELECT key,value FROM settings WHERE key IN ('rules',?)",'numberReference:'+year)]);
@@ -34,6 +35,7 @@ export async function ensureRecommendationHistory(){
    commands.push(stmt('UPDATE predictions SET latest_raw=?,latest_parsed=?,latest_kind=?,latest_version=?,retroactive=?,first_verdict=?,changed=(changed&~1)|? WHERE id=?',raw,JSON.stringify(previous),kind,version,retroactive,first?JSON.stringify(first):null,version?1:0,row.id));
    await db().batch(commands);
   }
+  await repairKingdomInterpretations();
  })().finally(()=>{legacyWork=null;});return legacyWork;
 }
 export async function recordRecommendationObservation(predictionId:string,raw:string,kind:string,parsed:any,at:string){
