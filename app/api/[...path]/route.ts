@@ -60,7 +60,7 @@ async function handle(request:Request,context:any){
    case 'combinations/preview':result=await previewCombination(body);break;
    case 'combinations/calculate':result=await calculateCombination(body);break;
    case 'combinations/push-config':await account.requirePrincipal(true,true);result=await saveCombinationPush(body);break;
-   case 'combinations/send':await account.requirePrincipal(true,true);result=await pushCombination(body);break;
+   case 'combinations/send':await account.requirePrincipal(true);result=await pushCombination(body);break;
    case 'source-toggle':result=await svc.toggleSource(body.id,body.enabled===true);break;
    case 'crawl':result=await svc.crawl(body.id,body.text);break;
    case 'draw':result=await svc.saveDraw(body);break;

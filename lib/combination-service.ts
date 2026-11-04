@@ -5,6 +5,7 @@ import {nextScheduledRun} from './schedule.mjs';
 import {beijingDate} from './wecom-push.mjs';
 import {sendRobotContent} from './wecom';
 import {combinationPeriodReport} from './combination-results.mjs';
+function refuse(code:string,message:string):never{throw Object.assign(Error(message),{code});}
 const stamp=()=>new Date().toISOString(),planKey=(id:string)=>'combinationPlan:'+id,runtimeKey=(id:string)=>'combinationRuntime:'+id;
 async function setting(key:string,fallback:any={}){const [r]=await list('SELECT value FROM settings WHERE key=?',key);return r?JSON.parse(r.value):fallback;}
 async function put(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
@@ -37,19 +38,40 @@ async function target(plan:any,input:any={}){
  if(input.issue){const issue=String(Number(input.issue)).padStart(3,'0');if(!/^\d{3}$/.test(issue)||+issue<1||+issue>366||Number(input.year||plan.year)!==plan.year)throw Error('请输入同年份有效期数');return periodInfo(plan.year,issue);}
  if(plan.targetMode==='fixed')return periodInfo(plan.year,plan.fixedIssue);
  if(plan.targetMode==='latest'){
-  const ids=sourceIds(plan);if(!ids.length)throw Error('按资料最新一期计算时，请至少选择一个采集栏目，或手动指定期数');
+  const ids=sourceIds(plan);if(!ids.length)refuse('NO_PERIOD','按资料最新一期计算时，请至少选择一个采集栏目，或手动指定期数');
   const [row]=await list(`SELECT MAX(p.issue) AS issue FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.year=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND p.source_id IN (${ids.map(()=>'?').join(',')})`,plan.year,...ids);
-  if(!row?.issue)throw Error('所选栏目暂无已采集期数，请先采集资料');return periodInfo(plan.year,row.issue);
+  if(!row?.issue)refuse('NO_PERIOD','所选栏目暂无已采集期数，请先采集资料');return periodInfo(plan.year,row.issue);
  }
  if(plan.targetMode==='common'){
   const ids=sourceIds(plan);
-  if(ids.length){const [row]=await list(`SELECT p.year,p.issue FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.year=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND p.source_id IN (${ids.map(()=>'?').join(',')}) GROUP BY p.year,p.issue HAVING COUNT(DISTINCT p.source_id)=? ORDER BY p.issue DESC LIMIT 1`,plan.year,...ids,ids.length);if(!row)throw Error('所选栏目没有共同期数，请先采集同一期资料');return periodInfo(plan.year,row.issue);}
+  if(ids.length){const [row]=await list(`SELECT p.year,p.issue FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.year=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND p.source_id IN (${ids.map(()=>'?').join(',')}) GROUP BY p.year,p.issue HAVING COUNT(DISTINCT p.source_id)=? ORDER BY p.issue DESC LIMIT 1`,plan.year,...ids,ids.length);if(!row)refuse('NO_PERIOD','所选栏目没有共同期数，请先采集同一期资料');return periodInfo(plan.year,row.issue);}
  }
  const expected=await setting('expectedDrawPeriods'),today=beijingDate(),draws=await list('SELECT issue FROM draws WHERE year=?',plan.year),closed=new Set(draws.map(d=>d.issue));
  const candidates=Object.values(expected).filter((p:any)=>p.year===plan.year&&p.date>=today&&!closed.has(p.issue)).sort((a:any,b:any)=>a.date.localeCompare(b.date)||Number(a.issue)-Number(b.issue)) as any[];
- if(!candidates.length)throw Error('暂无可信开奖源公布的待开奖期数；请同步开奖或手动指定期数');return periodInfo(plan.year,candidates[0].issue);
+ if(!candidates.length)refuse('NO_PERIOD','暂无可信开奖源公布的待开奖期数；请同步开奖或手动指定期数');return periodInfo(plan.year,candidates[0].issue);
 }
 async function periodInfo(year:number,issue:string){const [draw]=await list('SELECT draw_date,drawn_at FROM draws WHERE year=? AND issue=?',year,issue),expected=await setting('expectedDrawPeriods'),date=draw?.draw_date||expected[year+'-'+issue]?.date||(draw?.drawn_at?beijingDate(Date.parse(draw.drawn_at)):null);return {year,issue,date,drawn:!!draw};}
+async function todayPeriod(plan:any){
+ const today=beijingDate();if(plan.targetMode==='fixed'){const fixed=await periodInfo(plan.year,plan.fixedIssue);if(fixed.date===today)return fixed;}
+ const closed=new Set((await list('SELECT issue FROM draws WHERE year=?',plan.year)).map(d=>d.issue)),expected=Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.year===plan.year&&p.date===today).sort((a:any,b:any)=>Number(closed.has(a.issue))-Number(closed.has(b.issue))||Number(a.issue)-Number(b.issue)) as any[];
+ if(expected[0])return periodInfo(plan.year,expected[0].issue);
+ const [draw]=await list('SELECT issue FROM draws WHERE year=? AND draw_date=? ORDER BY issue DESC LIMIT 1',plan.year,today);if(draw)return periodInfo(plan.year,draw.issue);
+ return {year:plan.year,issue:null,date:today,drawn:false};
+}
+async function saveResult(plan:any,period:any,computed:any,collection:any[],persist=true){
+ const algorithmHash=await hash(algorithm(plan)),fingerprint=await hash({algorithm:algorithmHash,year:period.year,issue:period.issue,trace:computed.trace,errors:computed.errors});
+ const key=(period.issue?'combinationResult:':'combinationAttempt:')+plan.id+':'+period.year+':'+(period.issue||period.date)+':'+fingerprint;
+ const result={...computed,collection,id:key,planId:plan.id,planName:plan.name,planRevision:plan.revision||null,algorithmHash,fingerprint,periodDate:period.date,drawn:period.drawn,historical:period.drawn||!!computed.historical,createdAt:stamp()};
+ if(!persist)return {...result,preview:true};
+ await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,JSON.stringify(result));const saved=await setting(key);
+ await updateRuntime(plan.id,{lastCalc:stamp(),lastResultId:key,lastStatus:saved.status,lastError:saved.errors.join('；')||null});
+ await audit(saved.status==='complete'?'success':'warning',`「${plan.name}」${period.year}年${period.issue?'第'+period.issue+'期':'期数待确认'}：${saved.status==='complete'?'剩余候选 '+saved.total+' 个':saved.errors.join('；')}`,saved.total||0);
+ return {...saved,collection};
+}
+async function saveFailure(plan:any,errors:string[],collection:any[]=[],persist=true){
+ const period=await todayPeriod(plan),all=[...new Set([...collection.filter(r=>r.status==='error').map(r=>r.name+'：采集资料失败（'+r.error+'）'),...errors].filter(Boolean))];
+ return saveResult(plan,period,{year:period.year,issue:period.issue,status:'blocked',errors:all.length?all:['本期尚无完整计算记录'],baseMode:plan.baseMode,baseNumbers:[],numbers:[],partialNumbers:[],trace:[],total:null},collection,persist);
+}
 async function refreshSources(plan:any){
  if(plan.calculation.refreshSources===false)return [];
  const {crawl}=await import('./service'),results=[];
@@ -64,7 +86,8 @@ async function refreshSources(plan:any){
 }
 async function execute(plan:any,input:any={},persist=true,refresh=true){
  const collection=refresh?await refreshSources(plan):[];
- const period=await target(plan,input),sources=await list('SELECT id,name,year,kind,deleted_batch FROM sources WHERE deleted_batch IS NULL');
+ let period:any;try{period=await target(plan,input);}catch(e:any){if(e.code!=='NO_PERIOD')throw e;return saveFailure(plan,[e.message],collection,persist);}
+ const sources=await list('SELECT id,name,year,kind,deleted_batch FROM sources WHERE deleted_batch IS NULL');
  const ids=sourceIds(plan),predictions=ids.length?await list(`SELECT * FROM predictions WHERE year=? AND issue=? AND deleted_batch IS NULL AND source_id IN (${ids.map(()=>'?').join(',')})`,period.year,period.issue,...ids):[];
  const failures=await list("SELECT source_id,year,issue FROM collection_periods WHERE year=? AND issue=? AND status='failed' AND deleted_batch IS NULL",period.year,period.issue);
  const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference);
@@ -72,15 +95,7 @@ async function execute(plan:any,input:any={},persist=true,refresh=true){
  // A failed live refresh cannot silently publish a stale snapshot as latest.
  const collectionErrors=collection.filter(r=>r.status==='error').map(r=>r.name+'：采集最新资料失败（'+r.error+'）');
  if(collectionErrors.length){computed.errors.push(...collectionErrors);computed.status='blocked';computed.numbers=[];computed.total=null;}
- const algorithmHash=await hash(algorithm(plan)),fingerprint=await hash({algorithm:algorithmHash,year:period.year,issue:period.issue,trace:computed.trace,errors:computed.errors});
- const key='combinationResult:'+plan.id+':'+period.year+':'+period.issue+':'+fingerprint;
- const result={...computed,collection,id:key,planId:plan.id,planName:plan.name,planRevision:plan.revision||null,algorithmHash,fingerprint,periodDate:period.date,drawn:period.drawn,historical:period.drawn||predictions.some(p=>p.historical),createdAt:stamp()};
- if(!persist)return {...result,preview:true};
- await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,JSON.stringify(result));const saved=await setting(key);
- await updateRuntime(plan.id,{lastCalc:stamp(),lastResultId:key,lastStatus:saved.status,lastError:saved.errors.join('；')||null});
- // A deterministic result is retained once; audit each actual calculation for transparency.
- await audit(saved.status==='complete'?'success':'warning',`「${plan.name}」${period.year}年第${period.issue}期：${saved.status==='complete'?'剩余候选 '+saved.total+' 个':saved.errors.join('；')}`,saved.total||0);
- return {...saved,collection};
+ return saveResult(plan,period,{...computed,historical:predictions.some(p=>p.historical)},collection,persist);
 }
 export async function calculateCombination(input:any){const plan=await findPlan(input.id);return {result:await execute(plan,input)};}
 export async function previewCombination(input:any){const plan={...validateCombination(input),id:input.id||'preview',revision:null};return {result:await execute(plan,input,false)};}
@@ -99,37 +114,51 @@ export async function combinationState(selectedId?:string,selectedIssue?:string)
  const runtimes=new Map(runtimeRows.map(r=>[r.key.slice('combinationRuntime:'.length),JSON.parse(r.value)]));
  const selected=selectedId?values.find(p=>p.id===selectedId):null,resultRows=selected?await list("SELECT value FROM settings WHERE key LIKE ? ORDER BY json_extract(value,'$.createdAt') DESC LIMIT 20",'combinationResult:'+selected.id+':%'):[];
  const report=selected?await periodReport(selected,(await list("SELECT value FROM settings WHERE key LIKE ?",'combinationResult:'+selected.id+':%')).map(r=>JSON.parse(r.value))):null;
+ const selectedRuntime=selected?runtimes.get(selected.id):null,currentResult=selectedRuntime?.lastResultId?await setting(selectedRuntime.lastResultId,null):null;
  const periodResult=selectedIssue?report?.periods.find((r:any)=>r.issue===String(Number(selectedIssue)).padStart(3,'0'))||null:null;
  const compactReport=report?{...report,periods:report.periods.map((r:any)=>({id:r.id,year:r.year,issue:r.issue,status:r.status,total:r.total,numbers:r.numbers,createdAt:r.createdAt,backtest:r.backtest,historical:r.historical,settlement:r.settlement,snapshotCount:r.snapshotCount,errors:r.errors}))}:null;
  const decorated=[];for(const plan of values){const runtime=runtimes.get(plan.id)||{},last=runtime.lastResultId?await setting(runtime.lastResultId,null):null;decorated.push({...plan,runtime,lastResult:last?{id:last.id,issue:last.issue,year:last.year,status:last.status,total:last.total,numbers:last.numbers,createdAt:last.createdAt,errors:last.errors}:null});}
- return {report:compactReport,periodResult,plans:decorated,sources,profiles,results:resultRows.map(r=>JSON.parse(r.value)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
+ return {report:compactReport,periodResult,currentResult,plans:decorated,sources,profiles,results:resultRows.map(r=>JSON.parse(r.value)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
 }
-async function resultToSend(plan:any,selectedId?:string){
+async function resultToSend(plan:any,selectedId?:string,manual=false){
  let result=selectedId?await setting(selectedId,null):null;
- if(selectedId&&!result)throw Error('所选计算结果尚未保存，请先保存组合并重新计算');
+ if(selectedId&&!result)refuse('BAD_SELECTION','所选计算结果尚未保存，请先保存组合并重新计算');
  if(!result){const r=await setting(runtimeKey(plan.id));if(r.lastResultId)result=await setting(r.lastResultId,null);}
- if(!result||result.planId!==plan.id)throw Error('请先保存组合并完成本期计算');
- if(result.algorithmHash!==await hash(algorithm(plan)))throw Error('组合条件已修改，请重新计算后推送');
- if(result.status!=='complete')throw Error('资料不齐，不能推送不完整的计算结果');
+ if(!result)refuse('NO_RESULT','本期尚未保存计算结果');
+ if(result.planId!==plan.id)refuse('BAD_SELECTION','所选结果不属于当前组合');
+ if(result.algorithmHash!==await hash(algorithm(plan)))refuse('OUTDATED_ALGORITHM','组合条件已修改，请重新计算后推送');
+ if(result.status!=='complete'){
+  if(!manual&&result.periodDate!==beijingDate())refuse('NOT_TODAY','尚无当天的完整计算记录');
+  return {...result,notificationHistory:!!result.drawn||result.periodDate!==beijingDate()};
+ }
  for(const item of result.trace.filter((t:any)=>t.predictionId)){
   const [p]=await list('SELECT p.id FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.id=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL',item.predictionId);
   const [failure]=await list("SELECT id FROM collection_periods WHERE source_id=? AND year=? AND issue=? AND status='failed' AND deleted_batch IS NULL",item.sourceId,result.year,result.issue);
-  if(!p||failure)throw Error('本期参与计算的资料已删除或被记录为采集失败，请重新计算');
+  if(!p||failure)refuse('INPUT_FAILED',item.label+'：本期资料已删除或被记录为采集失败，未生成可推送的完整结果');
  }
  const period=await periodInfo(result.year,result.issue),now=new Date(Date.now()+8*3600000).toISOString().slice(11,16);
- if(period.drawn||period.date!==beijingDate()||now>=plan.cutoff)throw Error('只推送当天开奖前的完整计算结果；已开奖、跨日或超过截止时间的结果保留为历史记录');
+ if(period.drawn||period.date!==beijingDate()||now>=plan.cutoff)refuse('NOT_TODAY','只推送当天开奖前的完整计算结果；已开奖、跨日或超过截止时间的结果保留为历史记录');
  return result;
 }
 export async function pushCombination(input:any,manual=true){
  const plan=await findPlan(input.id);let result:any;
- try{result=await resultToSend(plan,input.resultId);}catch(e:any){if(manual)throw e;return {skipped:true,reason:e.message};}
- const key='combinationDelivery:'+plan.id+':'+result.year+':'+result.issue,[row]=await list('SELECT value FROM settings WHERE key=?',key),before=row?JSON.parse(row.value):{};
- if(before.status==='sent')return {skipped:true,reason:'该组合本期已推送，不重复发送'};
- if(before.retryAt>stamp())return {skipped:true,reason:'正在推送或等待重试'};
- const value={planId:plan.id,planName:plan.name,resultId:result.id,year:result.year,issue:result.issue,status:'sending',attemptAt:stamp(),retryAt:new Date(Date.now()+5*60000).toISOString()};
- const claimed=row?await run('UPDATE settings SET value=? WHERE key=? AND value=?',JSON.stringify(value),key,row.value):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,JSON.stringify(value));if(!claimed.meta.changes)return {skipped:true,reason:'其他任务正在推送本期组合'};
- try{await sendRobotContent(combinationMessage(plan,result));await put(key,{...value,status:'sent',sentAt:stamp(),retryAt:null});await updateRuntime(plan.id,{lastPush:stamp(),lastPushIssue:result.issue,lastPushError:null});await audit('success',`「${plan.name}」第${result.issue}期组合结果已推送企业微信群`,1);return {sent:true,issue:result.issue};}
- catch(e:any){await put(key,{...value,status:'failed',error:e.message});await updateRuntime(plan.id,{lastPushError:e.message});await audit('error',`「${plan.name}」第${result.issue}期推送失败：${e.message}`);if(manual)throw e;return {failed:true,error:e.message};}
+ try{result=await resultToSend(plan,input.resultId,manual);}catch(e:any){
+  if(e.code==='BAD_SELECTION'||manual&&!['NO_RESULT','INPUT_FAILED'].includes(e.code))throw e;
+  // A completed delivery must never turn into a false failure notification
+  // merely because the clock subsequently passed the cutoff or the draw arrived.
+  const runtime=await setting(runtimeKey(plan.id)),last=runtime.lastResultId?await setting(runtime.lastResultId,null):null;
+  if(last?.issue&&last.periodDate===beijingDate()&&(await setting('combinationDelivery:'+plan.id+':'+last.year+':'+last.issue)).status==='sent')return {skipped:true,reason:'本期完整结果已推送'};
+  const ids=sourceIds(plan),sources=ids.length?await list(`SELECT name,error FROM sources WHERE deleted_batch IS NULL AND id IN (${ids.map(()=>'?').join(',')})`,...ids):[];
+  result=await saveFailure(plan,[e.message,...sources.filter(s=>s.error).map(s=>s.name+'：'+s.error),runtime.lastError].filter(Boolean));
+ }
+ const messageType=result.status==='complete'?'complete':'blocked';
+ const key=messageType==='complete'?'combinationDelivery:'+plan.id+':'+result.year+':'+result.issue:'combinationFailureDelivery:'+plan.id+':'+(result.periodDate||beijingDate())+':'+(result.issue||'unknown'),[row]=await list('SELECT value FROM settings WHERE key=?',key),before=row?JSON.parse(row.value):{};
+ if(before.status==='sent')return {skipped:true,reason:messageType==='complete'?'该组合本期完整结果已推送，不重复发送':'本期未能计算的原因已推送，不重复发送',messageType};
+ if(before.retryAt>stamp())return {skipped:true,reason:'正在推送或等待重试',messageType};
+ const value={planId:plan.id,planName:plan.name,resultId:result.id,year:result.year,issue:result.issue,messageType,status:'sending',attemptAt:stamp(),retryAt:new Date(Date.now()+5*60000).toISOString()};
+ const claimed=row?await run('UPDATE settings SET value=? WHERE key=? AND value=?',JSON.stringify(value),key,row.value):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,JSON.stringify(value));if(!claimed.meta.changes)return {skipped:true,reason:'其他任务正在推送本期组合',messageType};
+ try{await sendRobotContent(combinationMessage(plan,result));await put(key,{...value,status:'sent',sentAt:stamp(),retryAt:null});await updateRuntime(plan.id,{lastPush:stamp(),lastPushIssue:result.issue,lastPushKind:messageType,lastPushError:null});await audit('success',`「${plan.name}」${result.issue?'第'+result.issue+'期':'当日'}${messageType==='complete'?'组合结果':'未能计算原因'}已推送企业微信群`,1);return {sent:true,issue:result.issue,messageType,result};}
+ catch(e:any){await put(key,{...value,status:'failed',error:e.message});await updateRuntime(plan.id,{lastPushError:e.message});await audit('error',`「${plan.name}」${result.issue||'当日'}期推送失败：${e.message}`);if(manual)throw e;return {failed:true,error:e.message,messageType};}
 }
 export async function scheduledCombinations(){
  const values=(await plans()).filter(p=>p.calculation.enabled||p.push.enabled),localTime=new Date(Date.now()+8*3600000).toISOString().slice(11,16);let calculated=0,pushed=0,blocked=0,failed=0;
@@ -138,9 +167,9 @@ export async function scheduledCombinations(){
   if(!due&&!pushDue)continue;
   const key='combinationLease:'+plan.id,at=Date.now(),lease=await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(settings.value AS INTEGER)<=?',key,String(at+10*60000),at);if(!lease.meta.changes)continue;
   try{
-   if(localTime>=plan.cutoff){if(due)await updateRuntime(plan.id,{nextCalc:tomorrow(plan),lastError:'已超过开奖前截止时间，本日不再自动计算或推送'});continue;}
-   if(due&&calculated+blocked<6){
-    try{const result=await execute(plan);if(result.periodDate!==beijingDate()||result.drawn){await updateRuntime(plan.id,{nextCalc:new Date(Date.now()+5*60000).toISOString(),lastError:'已检查所选栏目最新资料，等待当天待开奖期数，不推送历史结果'});blocked++;}
+   if(localTime>=plan.cutoff){if(due)await updateRuntime(plan.id,{nextCalc:tomorrow(plan),lastError:'已超过开奖前截止时间，本日不再生成新的开奖前候选结果'});}
+   else if(due&&calculated+blocked<6){
+    try{const result=await execute(plan);if(result.periodDate!==beijingDate()||result.drawn){await updateRuntime(plan.id,{nextCalc:new Date(Date.now()+5*60000).toISOString(),lastError:'已检查所选栏目最新资料，等待当天待开奖期数，不使用历史结果代替'});blocked++;}
      else{await updateRuntime(plan.id,{nextCalc:result.status==='complete'?nextCalculation(plan):new Date(Date.now()+5*60000).toISOString()});if(result.status==='complete')calculated++;else blocked++;}}
     catch(e:any){blocked++;await updateRuntime(plan.id,{nextCalc:new Date(Date.now()+5*60000).toISOString(),lastError:e.message});}
    }

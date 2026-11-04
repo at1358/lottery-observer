@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {navigationLinks,discoverEntry} from '../lib/entry-navigation.mjs';
+import {encryptedScriptResource} from '../lib/encrypted-shell.mjs';
 const options={name:'无敌牛哥【绝杀一段】',kind:'杀段',keyword:'无敌牛哥',sample:'305期:绝杀一段【六段】开:？00准',selector:'auto',autoRelocate:true};
 const content='<div class="column"><h2>无敌牛哥【绝杀一段】</h2><p>305期:绝杀一段【六段】开:？00准</p><p>306期:绝杀一段【四段】开:？00准</p></div>';
 test('published fixed-entry JSON line list excludes unrelated portal links and respects chosen line',()=>{
@@ -46,4 +47,18 @@ test('literal script, external redirect script and meta-refresh jumps are parsed
 test('redirect loops and unmatched target pages do not become successful collections',async()=>{
  let calls=0;await assert.rejects(discoverEntry('http://entry.example/',{...options,entryMode:'redirect'},async url=>{calls++;return {url,text:'',redirectUrl:url.includes('entry')?'https://target.example/':'http://entry.example/'};}),/未找到/);assert.equal(calls,2);
  await assert.rejects(discoverEntry('http://entry.example/',{...options,entryMode:'redirect'},async url=>({url,text:'<div>没有资料的广告页面</div>'})),/未找到/);
+});
+const loader=`<script>(function(){const encrypted="U2FsdGVkX1/L7jbzSSGQEW0otyB4hDNaCA7KRChBoipATIS4xVjM3a2y8t5tjmkk";const key="oulocalKey";function decryptAES(cipher,key){const bytes=CryptoJS.AES.decrypt(cipher,key);return bytes.toString(CryptoJS.enc.Utf8);}const url=decryptAES(encrypted,key);const s=document.createElement("script");s.src=url;})();</script>`;
+const router='const raw=location.hash.slice(1);const validPages=["dh","xg"];const pageKey=pageKeyRaw.toLowerCase();if(!validPages.includes(pageKey))return;iframe.src = `/seryuq/${pageKey}.html${suffix ? "#" + encodeURIComponent(suffix) : ""}`;';
+test('7011 published encrypted loader and whitelisted hash frame are decoded without executing scripts',async()=>{
+ assert.equal(encryptedScriptResource(loader,'https://site.example/#dh').url,'https://site.example/assets/main.js?v=7011');
+ const pages={'https://site.example/#dh':loader,'https://site.example/assets/main.js?v=7011':router,'https://site.example/seryuq/dh.html':'<iframe src="/article.html"></iframe>','https://site.example/article.html':content};
+ const result=await discoverEntry('https://site.example/#dh',options,async url=>{assert.ok(url in pages,url);return {url,text:pages[url]};});assert.equal(result.url,'https://site.example/article.html');
+ assert.ok(result.navigation.some(item=>item.url.includes('/seryuq/dh.html')));
+ assert.equal(navigationLinks('<a href="https://site.example/#dh">线路入口①</a>','http://entry.example/','无敌牛哥')[0].url,'https://site.example/#dh');
+});
+test('encrypted entry navigation rejects non-literal configuration and unannounced hash routes',()=>{
+ assert.equal(encryptedScriptResource(loader.replace('const key="oulocalKey";','const key=executeRemoteCode();'),'https://site.example/#dh'),null);
+ assert.deepEqual(navigationLinks('<script>'+router+'</script>','https://site.example/#admin','无敌牛哥'),[]);
+ assert.deepEqual(navigationLinks('<script>'+router+'</script>','https://site.example/#dh-../../secret','无敌牛哥'),[]);
 });

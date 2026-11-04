@@ -61,3 +61,11 @@ test('manual half-head, tail, sum and zodiac constraints use number-level attrib
  assert.throws(()=>validateCombination({name:'bad',year:2026,steps:p.steps,calculation:{enabled:true,time:'22:00'}}),/截止/);
  assert.throws(()=>computeCombination(p,{year:2026,issue:'wrong',predictions:[],sources:[]}),/有效/);
 });
+
+
+test('failed combination notifications name all failed inputs without publishing stale or partial candidates',()=>{
+ const message=combinationMessage({name:'人工组合'}, {year:2026,issue:'309',status:'blocked',errors:['春风拂面：采集失败','状元红：缺少309期资料'],numbers:[1,2,3],partialNumbers:[1,2,3],createdAt:'2026-11-05T08:00:00Z'});
+ assert.match(message,/未完成/);assert.match(message,/春风拂面/);assert.match(message,/状元红/);assert.doesNotMatch(message,/剩余候选|01 02 03/);
+ const unknown=combinationMessage({name:'人工组合'}, {year:2026,issue:null,status:'blocked',errors:['无法确认当期期数'],createdAt:'2026-11-05T08:00:00Z'});assert.match(unknown,/期数待确认/);assert.doesNotMatch(unknown,/第 null|第 000/);
+ const long=combinationMessage({name:'人工组合'}, {year:2026,issue:'309',status:'blocked',errors:Array.from({length:30},(_,i)=>'栏目'+i+'：'+ '异常'.repeat(150)),createdAt:'2026-11-05T08:00:00Z'});assert.ok(new TextEncoder().encode(long).length<2048);assert.match(long,/其余|另有/);
+});

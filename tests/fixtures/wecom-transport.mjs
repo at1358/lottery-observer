@@ -4,6 +4,10 @@ const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-7011.example'){
+  const file=url.pathname==='/'?'7011-entry.html':url.pathname==='/assets/main.js'?'7011-main.js':url.pathname==='/seryuq/dh.html'?'7011-frame.html':url.pathname==='/column.html'?'7011-column.html':null;
+  return file?new Response(readFileSync(new URL(file,import.meta.url)),{headers:{'Content-Type':'text/html; charset=utf-8'}}):new Response('Not found',{status:404});
+ }
  if(url.hostname==='qa-redirect.example'){
   const target=readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/redirect-destination.txt'),'utf8').trim();
   return new Response(null,{status:302,headers:{Location:target}});
