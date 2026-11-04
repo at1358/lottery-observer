@@ -73,3 +73,8 @@ test('a temporary entry fetch failure retries once without changing URL or excee
  let calls=0;const result=await discoverEntry('https://site.example/article',options,async url=>{if(++calls===1)throw Error('fetch failed');return {url,text:content};});assert.equal(calls,2);assert.match(result.text,/305期/);
  calls=0;await assert.rejects(discoverEntry('https://site.example/',options,async()=>{calls++;throw Error('fetch failed');},{maxRequests:1}),/已检查 1 个页面/);assert.equal(calls,1);
 });
+test('880555 multiline frame template is parsed as published text, without executing it',async()=>{
+ const multiline=router.replace('/seryuq/','/payloads/').replace('${suffix','${\n      suffix').replace(': ""}',': ""\n    }');
+ const links=navigationLinks('<script>'+multiline+'</script>','https://line.example/#dh','六合宝典【必开㊱码】');assert.equal(links[0].url,'https://line.example/payloads/dh.html');
+ assert.deepEqual(navigationLinks('<script>'+multiline+'</script>','https://line.example/#admin','六合宝典【必开㊱码】'),[]);
+});

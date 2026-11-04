@@ -13,7 +13,7 @@ try{
  const resume=await api('source-toggle',{id:saved.id,enabled:true});assert.ok(resume.nextRun.endsWith('08:30:00.000Z'));
  await api('source-toggle',{id:saved.id,enabled:false});
  const draft=await api('source',{name:'验收 · 待识别配置',url:'https://example.com/',text:source.text,year:2026,kind:'杀半头',selector:'auto',enabled:true,interval:60,schedule_mode:'inherit'});
- assert.ok(draft.warning);assert.equal(draft.enabled,false);
+ assert.ok(draft.warning);assert.equal(draft.enabled,true);
  const draftState=await api('state?source='+draft.id);const retained=draftState.sources.find(s=>s.id===draft.id);assert.equal(retained.sample,source.text);assert.ok(retained.error.startsWith('待识别'));assert.equal(draftState.count,0);
  await api('source-toggle',{id:draft.id,enabled:false});await api('source-toggle',{id:draft.id,enabled:true},400);
  await api('settings',{key:'collectionSchedule',value:{mode:'daily',time:'18:30',interval:60,enabled:true}});

@@ -16,6 +16,7 @@ import {verifyStoredResults} from './verification-service';
 import {ensureRecommendationHistory,recordRecommendationObservation} from './recommendation-history-service';
 import {repairKingdomInterpretations} from './kingdom-repair-service';
 import {customMaterialSummaries} from './custom-material-service';
+import {collectionWindowOpen,nextSourceCollection,nextCollectionDay} from './collection-retry.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -98,10 +99,10 @@ export async function saveSource(s:any){
  const needsVerify=s.url&&sample&&(collectNow||!previous||previous.url!==s.url||previous.sample!==sample||previous.kind!==s.kind||previous.selector!==s.selector||previous.entry_mode!==(s.entry_mode||'direct')||previous.entry_keyword!==(s.entry_keyword||'')||previous.entry_line!==(s.entry_line||'')||previous.error);
  let preview:any=null,warning:string|null=null;
  if(needsVerify){try{preview=await previewSource({...s,sample,text:sample,content_url:previous?.url===s.url?s.content_url||previous.content_url:''});}catch(e:any){warning=e.message;}}
- const source={...s,id:sourceId,year:+s.year,kind:preview?.kind||s.kind,selector:preview?.selector||s.selector||'auto',sample,content_url:preview?.url||(previous?.url===s.url?previous.content_url:'')||'',schedule_mode:s.schedule_mode||'inherit',daily_time:s.daily_time||'16:30',enabled:warning?0:(s.enabled===undefined?previous?!!previous.enabled:true:!!s.enabled)?1:0};
+ const source={...s,id:sourceId,year:+s.year,kind:preview?.kind||s.kind,selector:preview?.selector||s.selector||'auto',sample,content_url:preview?.url||(previous?.url===s.url?previous.content_url:'')||'',schedule_mode:s.schedule_mode||'inherit',daily_time:s.daily_time||'16:30',enabled:(s.enabled===undefined?previous?!!previous.enabled:true:!!s.enabled)?1:0};
  const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
  const scheduleChanged=!previous||previous.schedule_mode!==source.schedule_mode||previous.daily_time!==source.daily_time||previous.interval!==+s.interval||!previous.enabled&&source.enabled;
- const nextRun=scheduleChanged||!previous?.next_run?nextScheduledRun(effectiveSchedule(source,defaults)):previous.next_run;
+ const nextRun=warning?nextSourceCollection(source,defaults,true):scheduleChanged||!previous?.next_run?nextScheduledRun(effectiveSchedule(source,defaults)):previous.next_run;
  await run(`INSERT INTO sources(id,name,url,kind,year,selector,sample,content_url,schedule_mode,daily_time,enabled,interval,next_run,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,url=excluded.url,kind=excluded.kind,year=excluded.year,selector=excluded.selector,sample=excluded.sample,content_url=excluded.content_url,schedule_mode=excluded.schedule_mode,daily_time=excluded.daily_time,enabled=excluded.enabled,interval=excluded.interval,next_run=excluded.next_run,error=excluded.error`,sourceId,s.name.trim(),s.url||'',source.kind,+s.year,source.selector,sample,source.content_url,source.schedule_mode,source.daily_time,source.enabled,+s.interval,nextRun,warning?'待识别：'+warning:preview?null:previous?.error||null,previous?.created_at||now());
  await run('UPDATE sources SET cutoff_time=?,tracking_from=? WHERE id=?',s.cutoff_time||previous?.cutoff_time||'21:35',source.enabled?(previous?.enabled&&previous.tracking_from||now()):previous?.tracking_from||null,sourceId);
  await run('UPDATE sources SET folder_id=? WHERE id=?',folderId,sourceId);
@@ -110,15 +111,14 @@ export async function saveSource(s:any){
  if(preview?.navigation?.length)await putSetting('sourceNavigation:'+sourceId,{resolvedAt:now(),contentUrl:preview.url,steps:preview.navigation});
  let inserted=0;
  if(preview&&collectNow){const result=await ingest(source,preview.rows);inserted=result.inserted;await storeSnapshot(sourceId,preview.html);await run('UPDATE sources SET last_run=? WHERE id=?',now(),sourceId);}
- await log(s.name,warning?'warning':'success',warning?'配置已保存，自动采集未启用：'+warning:'栏目配置已保存；下次计划 '+plannedLabel(nextRun),inserted,sourceId);
+ await log(s.name,warning?'warning':'success',warning?'配置已保存；'+(source.enabled?'识别失败将在21:30前每60分钟重试：':'自动采集已暂停：')+warning:'栏目配置已保存；下次计划 '+plannedLabel(nextRun),inserted,sourceId);
  return {id:sourceId,inserted,selector:source.selector,kind:source.kind,nextRun,estimatedRun:estimatedExecution(nextRun,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'),warning,enabled:!!source.enabled};
 }
 async function storeSnapshot(sourceId:string,html:string){await run('INSERT INTO snapshots(id,source_id,html,created_at) VALUES(?,?,?,?)',id(),sourceId,html,now());await run('DELETE FROM snapshots WHERE source_id=? AND id NOT IN(SELECT id FROM snapshots WHERE source_id=? ORDER BY created_at DESC LIMIT 5)',sourceId,sourceId);}
 export async function toggleSource(sourceId:string,enabled:boolean){
  await finalizeCollections();
  const [s]=await list('SELECT * FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId);if(!s)throw Error('找不到该栏目');
- if(enabled&&s.error?.startsWith('待识别'))throw Error('该栏目尚未完成识别，请先打开来源设置重新识别');
- const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE),nextRun=enabled?nextScheduledRun(effectiveSchedule(s,defaults)):s.next_run;
+ const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE),nextRun=enabled?(s.error?nextSourceCollection(s,defaults,true):nextScheduledRun(effectiveSchedule(s,defaults))):s.next_run;
  await run('UPDATE sources SET enabled=?,next_run=?,tracking_from=? WHERE id=?',enabled?1:0,nextRun,enabled?now():s.tracking_from,sourceId);
  await log(s.name,'success',enabled?'已启用自动采集，下一次计划 '+plannedLabel(nextRun):'已暂停自动采集',0,sourceId);return {enabled,nextRun};
 }
@@ -164,16 +164,18 @@ export async function ingest(source:any,rows:any[],historical=false){
 export async function crawl(sourceId:string,text?:string,options:any={}){
  const [s]=await list('SELECT * FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId);if(!s)throw Error('找不到该来源');
  try{
+  if(options.automatic&&!collectionWindowOpen(Date.now(),s.cutoff_time||'21:30'))throw Error('已到自动采集停止时间，本日不再采集');
   const result=await previewSource({...s,text});
   s.kind=result.kind;
   const counts=await ingest(s,result.rows,!!text);
   if(!text)await storeSnapshot(s.id,result.html);
+  if(options.requiredIssue){const [required]=await list('SELECT parsed FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(required.parsed):null;}catch{}if(!parsed?.valid)throw Error(`${s.name}：第 ${options.requiredIssue} 期资料尚未采集完整，60分钟后重试`);}
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
-  await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?s.next_run:nextScheduledRun(effectiveSchedule(s,defaults)),s.id);
+  await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?s.next_run:nextSourceCollection(s,defaults),s.id);
   if(result.navigation?.length)await putSetting('sourceNavigation:'+s.id,{resolvedAt:now(),contentUrl:result.url,steps:result.navigation});
   if(result.relocated)await log('正文自动定位','success',`${s.name}：已确认同一栏目并自动更新正文位置`,1,s.id);
   await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更`,counts.inserted,s.id);return counts;
- }catch(e:any){await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),options.preserveSchedule?s.next_run:new Date(Date.now()+Math.max(30,s.interval*2)*60000).toISOString(),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
+ }catch(e:any){const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),nextSourceCollection(s,defaults,true),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
 }
 export async function saveDraw(input:any,provenance='手动录入',allowUnknownTime=false,deferVerification=false){
  const d=validateDraw(input,allowUnknownTime);const drawnAt=d.drawnAt?new Date(d.drawnAt).toISOString():null;
@@ -266,12 +268,15 @@ export async function tick(){
  const pushResult:any=await sendLatestDraw();if(pushResult.sent)success++;if(pushResult.failed)failed++;
  await finalizeCollections();
  const collectionSchedule=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
- const due=collectionSchedule.enabled===false?[]:await list('SELECT * FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?) ORDER BY next_run LIMIT 8',stamp);
+ const windowOpen=collectionWindowOpen(Date.parse(stamp)),due=collectionSchedule.enabled===false?[]:await list('SELECT * FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?) ORDER BY next_run'+(windowOpen?' LIMIT 8':''),stamp);
+ const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10),expected=Object.values(await getSetting('expectedDrawPeriods')) as any[],closed=new Set((await list('SELECT year,issue FROM draws')).map(d=>d.year+'-'+d.issue));
  for(const s of due){
+  if(!windowOpen||!collectionWindowOpen(Date.parse(stamp),s.cutoff_time||'21:30')){await run('UPDATE sources SET next_run=? WHERE id=? AND (next_run IS NULL OR next_run<=?)',nextCollectionDay(s,collectionSchedule),s.id,stamp);continue;}
   // Atomic lease prevents simultaneous cloud/manual ticks from fetching the same source.
   const lease=await run('UPDATE sources SET next_run=? WHERE id=? AND (next_run IS NULL OR next_run<=?)',new Date(Date.now()+10*60000).toISOString(),s.id,stamp);
   if(!lease.meta.changes)continue;
-  try{await crawl(s.id);success++;}catch{failed++;}
+  const period=expected.filter(p=>p.year===s.year&&p.date===today&&!closed.has(p.year+'-'+p.issue)).sort((a,b)=>Number(a.issue)-Number(b.issue))[0];
+  try{await crawl(s.id,undefined,{requiredIssue:period?.issue,automatic:true});success++;}catch{failed++;}
  }
  await finalizeCollections();
  const [remaining]=await list('SELECT COUNT(*) AS count FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?)',now());

@@ -2,8 +2,15 @@
 import {appendFileSync,readFileSync} from 'node:fs';
 const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
+const RealDate=Date;
+if(process.env.QA_CLOCK_FILE){const now=()=>{try{const value=RealDate.parse(readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim());return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname.startsWith('qa-')&&process.env.QA_FETCH_LOG)appendFileSync(process.env.QA_FETCH_LOG,JSON.stringify({url:url.href,at:new Date().toISOString()})+'\n');
+ if(url.hostname==='qa-hourly.example'){
+  const name=url.pathname.slice(1);if(!['base','tail','kill'].includes(name))return new Response('Temporary source error',{status:503});
+  return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/hourly-'+name+'.html')),{headers:{'Content-Type':'text/html; charset=utf-8'}});
+ }
  if(url.hostname==='qa-13349.example'){
   const file=url.pathname==='/'?'7011-entry.html':url.pathname==='/assets/main.js'?'13349-main.js':url.pathname==='/payloads/dh.html'?'7011-frame.html':url.pathname==='/column.html'?'13349-column.html':null;
   return file?new Response(readFileSync(new URL(file,import.meta.url)),{headers:{'Content-Type':'text/html; charset=utf-8'}}):new Response('Not found',{status:404});
