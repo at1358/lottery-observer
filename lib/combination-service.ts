@@ -45,7 +45,7 @@ async function target(plan:any,input:any={}){
  if(input.issue){const issue=String(Number(input.issue)).padStart(3,'0');if(!/^\d{3}$/.test(issue)||+issue<1||+issue>366||Number(input.year||plan.year)!==plan.year)throw Error('请输入同年份有效期数');return periodInfo(plan.year,issue);}
  if(plan.targetMode==='fixed')return periodInfo(plan.year,plan.fixedIssue);
  if(customIds(plan).length&&['latest','common'].includes(plan.targetMode)){
-  const current=await todayPeriod(plan);if(current.issue&&!current.drawn)return current;
+  const current=await todayPeriod(plan);if(plan.targetMode==='latest'&&current.issue&&!current.drawn)return current;
   const [last]=await list('SELECT MAX(CAST(issue AS INTEGER)) AS issue FROM draws WHERE year=?',plan.year),cap=last?.issue?Math.min(366,last.issue+1):0,ids=sourceIds(plan),data=await customCombinationData(customIds(plan),plan.year);const sets:Set<string>[]=[];
   for(const id of ids)sets.push(new Set((await list('SELECT issue FROM predictions WHERE source_id=? AND year=? AND deleted_batch IS NULL',id,plan.year)).map(p=>p.issue)));
   for(const id of customIds(plan))sets.push(new Set(data.records.filter(r=>r.materialId===id&&+r.issue<=cap).map(r=>r.issue)));
