@@ -30,8 +30,8 @@ function validateSource(s:any){
  if(!Number.isInteger(+s.year)||+s.year<2000||+s.year>2100)throw Error('请确认资料年份');
  if(!KINDS.includes(s.kind))throw Error('请选择有效的资料类型');
  if(s.url)checkUrl(s.url);
- if(s.entry_mode&& !['direct','navigation'].includes(s.entry_mode))throw Error('采集方法无效');
- if(s.entry_mode==='navigation'&&(!String(s.entry_keyword||'').trim()||String(s.entry_keyword).length>100))throw Error('请填写100字以内的栏目查找关键词');
+ if(s.entry_mode&& !['direct','navigation','redirect'].includes(s.entry_mode))throw Error('采集方法无效');
+ if((s.entry_mode==='navigation'&&!String(s.entry_keyword||'').trim())||String(s.entry_keyword||'').length>100)throw Error('请填写100字以内的栏目查找关键词');
  if(String(s.entry_line||'').length>60)throw Error('线路名称过长');
  if(!Number.isInteger(+s.interval)||+s.interval<60||+s.interval>10080)throw Error('采集间隔应为 60–10080 分钟');
  if(String(s.selector||'body').length>200)throw Error('内容选择器过长');
@@ -75,7 +75,7 @@ export async function previewSource(s:any){
  const kindHint=/半头/.test(s.name+' '+sample)&&['自动识别','杀头','头数'].includes(s.kind)?inferKind(s.name+' '+sample):s.kind;
  let extracted:any,lastError:any;
  const options={selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0};
- if(s.url&&s.entry_mode==='navigation')extracted=await discoverEntry(s.url,{...options,keyword:s.entry_keyword,line:s.entry_line},(url:string,referer?:string)=>download(url,true,referer,true));
+ if(s.url&&['navigation','redirect'].includes(s.entry_mode))extracted=await discoverEntry(s.url,{...options,entryMode:s.entry_mode,keyword:s.entry_keyword||(s.entry_mode==='redirect'?(String(s.name||'').match(/【([^】]+)】/)?.[1]||s.name):''),line:s.entry_mode==='navigation'?s.entry_line:''},(url:string,referer?:string)=>download(url,true,referer,true));
  const urls=s.url?[...new Set([s.content_url,s.url].filter(Boolean))]:[''];
  for(const url of extracted?[]:urls){try{const data=url?await sourceDownload(url):{text:String(s.text||''),url:'https://text-preview.invalid/'};extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0},sourceDownload);if(urls[0]!==url)extracted.relocated=true;break;}catch(error){lastError=error;}}
  if(!extracted)throw lastError;

@@ -4,6 +4,15 @@ const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-redirect.example'){
+  const target=readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/redirect-destination.txt'),'utf8').trim();
+  return new Response(null,{status:302,headers:{Location:target}});
+ }
+ if(['qa-landing-one.example','qa-landing-two.example'].includes(url.hostname)){
+  if(url.pathname.startsWith('/_1491'))return new Response('<iframe src="/wz/am.html"></iframe>',{headers:{'Content-Type':'text/html; charset=utf-8'}});
+  if(url.pathname==='/wz/am.html')return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/redirect-column.html')),{headers:{'Content-Type':'text/html; charset=utf-8'}});
+  return new Response('Not found',{status:404});
+ }
  if(url.hostname==='qa-entry.example'){
   const name=url.pathname==='/'?'entry-root.html':url.pathname==='/line'?'entry-line.html':url.pathname==='/column'?'entry-column.html':null;
   return name?new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/'+name)),{headers:{'Content-Type':'text/html; charset=utf-8'}}):new Response('Not found',{status:404});

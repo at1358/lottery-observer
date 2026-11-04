@@ -28,3 +28,22 @@ test('unrelated redirects cannot succeed without matching column; budget and URL
  const links=navigationLinks('<a href="javascript:alert(1)">线路入口</a><a href="file:///etc/passwd">无敌牛哥</a>','http://entry.example/','无敌牛哥');assert.deepEqual(links,[]);
  await assert.rejects(discoverEntry('http://entry.example/',options,async url=>{if(url.includes('127.0.0.1'))throw Error('禁止内部地址');return {url,text:'<a href="http://127.0.0.1/admin">线路入口</a>'};}),/禁止内部地址/);
 });
+test('redirect mode follows a published cross-site destination and frames without selecting a line',async()=>{
+ let host='first.example';const calls=[];
+ const download=async url=>{calls.push(url);if(url==='http://entry.example/')return {url,text:'',redirectUrl:'https://'+host+'/_1491_.app#1491'};
+  if(url.includes('_1491_'))return {url,text:'<a href="https://unrelated.example/">线路入口</a><iframe src="/wz/am.html"></iframe>'};
+  assert.equal(url,'https://'+host+'/wz/am.html');return {url,text:content};};
+ const redirect={...options,entryMode:'redirect',keyword:''};
+ const first=await discoverEntry('http://entry.example/',redirect,download);assert.equal(first.url,'https://first.example/wz/am.html');
+ host='second.example';const second=await discoverEntry('http://entry.example/',redirect,download);assert.equal(second.url,'https://second.example/wz/am.html');assert.match(second.text,/306期/);
+ assert.ok(calls.every(url=>!url.includes('unrelated')));assert.equal(calls.filter(url=>url==='http://entry.example/').length,2);
+});
+test('literal script, external redirect script and meta-refresh jumps are parsed without running JavaScript',async()=>{
+ const pages={'http://entry.example/':'<script src="/redirect.js"></script>','http://entry.example/redirect.js':'window.location.replace("https://target.example/start"); throw new Error("must never execute")','https://target.example/start':'<meta http-equiv="refresh" content="0; url=/article">','https://target.example/article':content};
+ const result=await discoverEntry('http://entry.example/',{...options,entryMode:'redirect'},async url=>{assert.ok(url in pages);return {url,text:pages[url]};});assert.equal(result.url,'https://target.example/article');
+ const links=navigationLinks('<script>location.assign("https://target.example/article")</script>','http://entry.example/','无敌牛哥');assert.equal(links[0].url,'https://target.example/article');
+});
+test('redirect loops and unmatched target pages do not become successful collections',async()=>{
+ let calls=0;await assert.rejects(discoverEntry('http://entry.example/',{...options,entryMode:'redirect'},async url=>{calls++;return {url,text:'',redirectUrl:url.includes('entry')?'https://target.example/':'http://entry.example/'};}),/未找到/);assert.equal(calls,2);
+ await assert.rejects(discoverEntry('http://entry.example/',{...options,entryMode:'redirect'},async url=>({url,text:'<div>没有资料的广告页面</div>'})),/未找到/);
+});
