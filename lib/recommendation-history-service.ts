@@ -3,6 +3,7 @@ import {evaluate} from './domain.mjs';
 import {rulesWithReference} from './number-reference.mjs';
 import {interpretation,compareRecommendations,afterDrawStatus} from './recommendation-history.mjs';
 import {repairKingdomInterpretations} from './kingdom-repair-service';
+import {repairGroupedNumberInterpretations} from './grouped-number-repair-service';
 const read=(value:any,fallback:any=null)=>{try{return typeof value==='string'?JSON.parse(value):value||fallback;}catch{return fallback;}};
 async function context(year:number,issue:string){
  const [draws,settings]=await Promise.all([list('SELECT * FROM draws WHERE year=? AND issue=?',year,issue),list("SELECT key,value FROM settings WHERE key IN ('rules',?)",'numberReference:'+year)]);
@@ -36,6 +37,7 @@ export async function ensureRecommendationHistory(){
    await db().batch(commands);
   }
   await repairKingdomInterpretations();
+  await repairGroupedNumberInterpretations();
  })().finally(()=>{legacyWork=null;});return legacyWork;
 }
 export async function recordRecommendationObservation(predictionId:string,raw:string,kind:string,parsed:any,at:string){

@@ -45,6 +45,18 @@ test('an already archived source table can be used directly without changing col
  const text=elements.definitions.map(d=>d.raw).join('\n'),legacy=row('element','杀行','305期绝杀一行【土行】\n'+text),original=JSON.stringify(legacy);
  const r=computeCombination(plan(['element']),{year:2026,issue:'305',predictions:[legacy],sources,rules:annual});assert.equal(r.status,'complete');assert.equal(r.trace[0].origin,'栏目自带对照');assert.equal(JSON.stringify(legacy),original);assert.ok(!r.numbers.includes(21));
 });
+
+test('a self-created recommendation can be the base, with same-period custom exclusions and missing-data guards',()=>{
+ const id='a'.repeat(8)+'-aaaa-aaaa-aaaa-'+ 'a'.repeat(12),killId='b'.repeat(8)+'-bbbb-bbbb-bbbb-'+ 'b'.repeat(12);
+ const p=validateCombination({name:'自建基础',year:2026,baseMode:'custom',baseCustomMaterialId:id,steps:[{type:'custom',materialId:killId,mode:'exclude'}]});
+ assert.equal(p.baseSourceId,'');assert.equal(p.baseCustomMaterialId,id);
+ const customMaterials=[{id,name:'自建15码',kind:'号码',year:2026},{id:killId,name:'自建杀码',kind:'杀号码',year:2026}],customRecords=[{materialId:id,year:2026,issue:'305',kind:'号码',parsed:{valid:true,values:ALL_NUMBERS.slice(0,15)},recordKey:'base:305'},{materialId:killId,year:2026,issue:'305',kind:'杀号码',parsed:{valid:true,values:[2,4,30]},recordKey:'kill:305'}],context={year:2026,issue:'305',sources:[],predictions:[],customMaterials,customRecords};
+ const result=computeCombination(p,context);assert.equal(result.status,'complete');assert.equal(result.baseNumbers.length,15);assert.deepEqual(result.numbers,ALL_NUMBERS.slice(0,15).filter(n=>![2,4].includes(n)));assert.equal(result.trace[0].role,'base');assert.equal(result.trace[0].customMaterialId,id);assert.equal(result.trace[0].customRecordKey,'base:305');
+ for(const patch of [{customRecords:customRecords.slice(1)},{customRecords:customRecords.map(r=>({...r,issue:'304'}))},{customMaterials:customMaterials.slice(1)},{customMaterials:customMaterials.map(r=>({...r,year:2025}))},{customRecords:customRecords.map(r=>r.materialId===id?{...r,parsed:{valid:false,warnings:['待补']}}:r)}])assert.equal(computeCombination(p,{...context,...patch}).status,'blocked');
+ const invalidBase=computeCombination({...p,baseCustomMaterialId:killId,steps:[]},context);assert.equal(invalidBase.status,'blocked');
+ assert.throws(()=>validateCombination({...p,baseCustomMaterialId:''}),/自建推荐/);
+ assert.equal(validateCombination({...p,baseMode:'all'}).baseCustomMaterialId,undefined);
+});
 test('missing, failed, deleted or differently dated inputs block final output',()=>{
  const p=plan(['white','tail']);for(const context of [{predictions:predictions.filter(p=>p.source_id!=='tail')},{predictions:predictions.map(p=>p.source_id==='tail'?{...p,issue:'304'}:p)},{sources:sources.filter(s=>s.id!=='tail')},{failures:[{source_id:'tail',year:2026,issue:'305'}]}]){const r=computeCombination(p,{year:2026,issue:'305',predictions,sources,rules:annual,...context});assert.equal(r.status,'blocked');assert.deepEqual(r.numbers,[]);}
  assert.throws(()=>computeCombination(p,{year:2025,issue:'305',predictions,sources,rules:annual}),/年份/);

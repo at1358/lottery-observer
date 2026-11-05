@@ -23,8 +23,8 @@ async function updateRuntime(id:string,patch:any){
 function nextCalculation(plan:any,at=Date.now()){return plan.calculation.mode==='interval'?new Date(at+plan.calculation.interval*60000).toISOString():nextScheduledRun({...plan.calculation,interval:Math.max(60,plan.calculation.interval)},at);}
 function tomorrow(plan:any){const day=beijingDate(Date.now()+86400000);return new Date(day+'T'+(plan.calculation.mode==='daily'?plan.calculation.time:'00:00')+':00+08:00').toISOString();}
 const sourceIds=(p:any)=>[...new Set<string>([...(p.baseMode==='source'?[p.baseSourceId]:[]),...p.steps.filter((s:any)=>s.type==='source').map((s:any)=>s.sourceId)])];
-const customIds=(p:any)=>[...new Set<string>(p.steps.filter((s:any)=>s.type==='custom').map((s:any)=>s.materialId))];
-const algorithm=(p:any)=>({year:p.year,baseMode:p.baseMode||(p.baseNumbers.length?'manual':'all'),baseSourceId:p.baseSourceId||'',baseNumbers:p.baseNumbers,steps:p.steps});
+const customIds=(p:any)=>[...new Set<string>([...(p.baseMode==='custom'?[p.baseCustomMaterialId]:[]),...p.steps.filter((s:any)=>s.type==='custom').map((s:any)=>s.materialId)])];
+const algorithm=(p:any)=>({year:p.year,baseMode:p.baseMode||(p.baseNumbers.length?'manual':'all'),baseSourceId:p.baseSourceId||'',...(p.baseMode==='custom'?{baseCustomMaterialId:p.baseCustomMaterialId||''}:{}),baseNumbers:p.baseNumbers,steps:p.steps});
 async function combinationAlgorithm(plan:any){const ids=customIds(plan);if(!ids.length)return algorithm(plan);const values=await customMaterialSummaries();return {...algorithm(plan),customRules:ids.sort().map(id=>{const p=values.find(p=>p.id===id);return {id,ruleKey:p?materialRuleKey(p):null};})};}
 export async function saveCombination(input:any,canManagePush:boolean){
  const value=validateCombination(input),id=input.id||crypto.randomUUID(),old=input.id?await findPlan(input.id):null;
@@ -32,7 +32,7 @@ export async function saveCombination(input:any,canManagePush:boolean){
  if(old&&input.revision!==old.revision){const e:any=Error('组合已被其他页面修改，请重新载入后保存');e.status=409;throw e;}
  if(!old&&(await plans()).length>=50)throw Error('最多保存50个组合');
  const ids=sourceIds(value);for(const sourceId of ids)if(!(await list('SELECT id FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId)).length)throw Error('所选采集栏目已删除，请重新选择');
- for(const materialId of customIds(value)){const p=await setting('customMaterialPlan:'+materialId,null);if(!p)throw Error('所选自建资料不存在');if(p.year!==value.year)throw Error('自建资料年份与组合年份不一致，请选择同年份栏目');}
+ for(const materialId of customIds(value)){const p=await setting('customMaterialPlan:'+materialId,null);if(!p||p.deletedAt)throw Error('所选自建资料不存在或已删除');if(p.year!==value.year)throw Error('自建资料年份与组合年份不一致，请选择同年份栏目');if(value.baseMode==='custom'&&materialId===value.baseCustomMaterialId&&p.type!=='manual-numbers')throw Error('基础号码池请选择自建推荐号码；自建杀码、n−k 杀肖请放入排除条件');}
  if(value.push.enabled&&!(await setting('wecomPush')).webhook)throw Error('请先在企业微信推送菜单配置机器人 Webhook');
  const now=stamp(),plan={...value,id,revision:crypto.randomUUID(),createdAt:old?.createdAt||now,updatedAt:now};
  const serialized=JSON.stringify(plan),saved=old?await run('UPDATE settings SET value=? WHERE key=? AND value=?',serialized,planKey(id),JSON.stringify(old)):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',planKey(id),serialized);if(!saved.meta.changes)throw Error('组合存在并发修改，请重新载入');
