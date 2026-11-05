@@ -15,7 +15,7 @@ import {sourceDefinitions} from './source-rules.mjs';
 import {verifyStoredResults} from './verification-service';
 import {ensureRecommendationHistory,recordRecommendationObservation} from './recommendation-history-service';
 import {repairKingdomInterpretations} from './kingdom-repair-service';
-import {customMaterialSummaries} from './custom-material-service';
+import {customMaterialSummaries,scheduledCustomMaterials} from './custom-material-service';
 import {collectionWindowOpen,nextSourceCollection,nextCollectionDay} from './collection-retry.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
@@ -264,6 +264,7 @@ export async function scheduledDrawUpdate(){
 export async function tick(){
  const stamp=now();let success=0,failed=0;
  const drawResult:any=await scheduledDrawUpdate();if(!drawResult.skipped){success+=drawResult.errors.length?0:1;failed+=drawResult.errors.length;}
+ const customMaterials=await scheduledCustomMaterials();if(!customMaterials.skipped){success+=customMaterials.checked||0;failed+=customMaterials.failed||0;}
  await refreshPendingPush(dailyDrawUpdate);
  const pushResult:any=await sendLatestDraw();if(pushResult.sent)success++;if(pushResult.failed)failed++;
  await finalizeCollections();
@@ -284,7 +285,7 @@ export async function tick(){
  const pending=collectionSchedule.enabled===false?0:remaining.count;
  await putSetting('scheduler',{lastRun:now(),success,failed,remaining:pending});
  await log('定时检查',failed?'error':'success',collectionSchedule.enabled===false?'全站自动采集已暂停；开奖同步按原设置运行':`本批检查完成：成功 ${success}，失败 ${failed}，剩余到期栏目 ${pending}`,success);
- return {success,failed,remaining:pending,push:pushResult,combinations};
+ return {success,failed,remaining:pending,push:pushResult,combinations,customMaterials};
 }
 export async function recheckResults(input:any={}){
  const query=new URLSearchParams();let name='全部采集资料';

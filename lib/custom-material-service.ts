@@ -1,9 +1,11 @@
 import {list,run,db,stmt} from './db';
 import {validateCustomMaterial,buildCustomMaterial,annualPeriods,customMaterialLabel,materialRuleKey} from './custom-material.mjs';
 import {referenceCoverage,referenceNumberRows} from './number-reference.mjs';
+import {customMaterialSchedulePlan} from './custom-material-schedule.mjs';
 const planKey=(id:string)=>'customMaterialPlan:'+id,rowsKey=(id:string)=>'customMaterialRows:'+id;
 const stamp=()=>new Date().toISOString();
 async function setting(key:string,fallback:any=null){const [row]=await list('SELECT value FROM settings WHERE key=?',key);return row?JSON.parse(row.value):fallback;}
+async function put(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
 async function find(id:string){if(!/^[a-f0-9-]{36}$/.test(id||''))throw Error('自建栏目编号无效');const plan=await setting(planKey(id));if(!plan)throw Error('该自建栏目不存在');return plan;}
 export async function customMaterialSummaries(){
  const rows=await list("SELECT p.value AS plan,json_extract(r.value,'$.stats') AS stats,json_extract(r.value,'$.lastCheckedAt') AS checked FROM settings p LEFT JOIN settings r ON r.key='customMaterialRows:'||substr(p.key,length('customMaterialPlan:')+1) WHERE p.key LIKE 'customMaterialPlan:%' ORDER BY json_extract(p.value,'$.lag'),json_extract(p.value,'$.year') DESC,json_extract(p.value,'$.createdAt')");
@@ -22,6 +24,31 @@ export async function refreshCustomMaterial(id:string){
 export async function refreshCustomMaterials(year?:number){
  const plans=(await customMaterialSummaries()).filter(p=>!year||p.year>=year&&p.year<=year+2);let checked=0;
  for(const plan of plans){await refreshCustomMaterial(plan.id);checked++;}return {checked};
+}
+export async function customMaterialAutomation(){
+ const runtime=await setting('customMaterialScheduleState',{}),plan=customMaterialSchedulePlan(await setting('customMaterialSchedule',{}),runtime);
+ return {schedule:plan.schedule,nextRun:plan.nextRun,lastRun:runtime.lastRun||null,lastSuccessAt:runtime.lastSuccessAt||null,checked:runtime.checked||0,added:runtime.added||0,error:runtime.error||null,retryAt:runtime.retryAt||null};
+}
+export async function saveCustomMaterialSchedule(input:any){
+ const {schedule}=customMaterialSchedulePlan(input);await put('customMaterialSchedule',schedule);return customMaterialAutomation();
+}
+export async function scheduledCustomMaterials(){
+ const getPlan=async()=>{const runtime=await setting('customMaterialScheduleState',{});return {runtime,...customMaterialSchedulePlan(await setting('customMaterialSchedule',{}),runtime)};};
+ let plan=await getPlan();if(!plan.due)return {skipped:true,nextRun:plan.nextRun};
+ const leaseKey='customMaterialScheduleLease',at=Date.now(),lease=String(at+10*60000),claimed=await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(settings.value AS INTEGER)<=?',leaseKey,lease,at);
+ if(!claimed.meta.changes)return {skipped:true,reason:'自建资料正在自动更新'};
+ try{
+  plan=await getPlan();if(!plan.due)return {skipped:true,nextRun:plan.nextRun};
+  let checked=0,added=0;const errors:string[]=[];
+  for(const item of await customMaterialSummaries()){
+   try{const before=await setting(rowsKey(item.id),{rows:[]}),known=new Set(before.rows.map((row:any)=>row.issue)),result=await refreshCustomMaterial(item.id);checked++;added+=result.rows.filter((row:any)=>!known.has(row.issue)).length;}
+   catch(e:any){errors.push(item.name+'：'+e.message);}
+  }
+  const finished=stamp(),runtime={...plan.runtime,lastRun:finished,checked,added,error:errors.join('；')||null,retryAt:errors.length?new Date(Date.now()+5*60000).toISOString():null,...(!errors.length?{lastSuccessDate:plan.date,lastSuccessAt:finished}:{})};
+  await put('customMaterialScheduleState',runtime);
+  await run('INSERT INTO jobs(id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),'自建资料定时更新',errors.length?'error':'success',`北京时间每天 ${plan.schedule.time}：已更新 ${checked} 个自建栏目，新增 ${added} 期资料；开奖结果与正确率已复核${errors.length?'；失败栏目5分钟后重试：'+errors.join('；'):''}`,checked,finished);
+  return {checked,added,failed:errors.length,errors,nextRun:(await customMaterialAutomation()).nextRun};
+ }finally{await run('UPDATE settings SET value=? WHERE key=? AND value=?','0',leaseKey,lease);}
 }
 export async function saveCustomMaterial(input:any){
  const value=validateCustomMaterial(input),old=input.id?await find(input.id):null,id=old?.id||crypto.randomUUID();
@@ -43,13 +70,13 @@ export async function saveCustomMaterial(input:any){
  return {plan,stats:result.stats};
 }
 export async function readCustomMaterials(params=new URLSearchParams()){
- const items=await customMaterialSummaries(),id=params.get('material');if(!id)return {items};
+ const items=await customMaterialSummaries(),automation=await customMaterialAutomation(),id=params.get('material');if(!id)return {items,automation};
  const plan=await find(id),stored=await setting(rowsKey(id),{rows:[],stats:null,lastCheckedAt:null});
  const status=params.get('status')||'',from=params.get('from')||'',to=params.get('to')||'',page=Math.max(1,Math.floor(Number(params.get('page'))||1)),pageSize=25;
  if(status&&!['win','loss','pending','review'].includes(status))throw Error('核验筛选无效');
  for(const v of [from,to])if(v&&(!/^\d{1,3}$/.test(v)||+v<1||+v>366))throw Error('筛选期数应为1–366');if(from&&to&&+from>+to)throw Error('开始期数不能大于结束期数');
  const filtered=stored.rows.filter((r:any)=>(!status||r.status===status)&&(!from||+r.issue>=+from)&&(!to||+r.issue<=+to));
- return {items,plan:{...plan,records:undefined},displayName:customMaterialLabel(plan,stored.stats),stats:stored.stats,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,lastCheckedAt:stored.lastCheckedAt};
+ return {items,automation,plan:{...plan,records:undefined},displayName:customMaterialLabel(plan,stored.stats),stats:stored.stats,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,lastCheckedAt:stored.lastCheckedAt};
 }
 export async function customCombinationData(ids:string[],year:number){
  const materials=[],records=[];const profile=await setting('numberReference:'+year),complete=profile?.year===year&&profile.enabled!==false&&referenceCoverage(profile).zodiacs.count===49,zodiacs=complete?Object.fromEntries(referenceNumberRows(profile).map((r:any)=>[r.number,r.zodiac])):null;

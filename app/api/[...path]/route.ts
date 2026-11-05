@@ -7,7 +7,7 @@ import {readNumberReference,saveNumberReference} from '../../../lib/reference-se
 import {pushState,savePush,testPush,sendLatestDraw} from '../../../lib/wecom';
 import {combinationState,saveCombination,saveCombinationPush,calculateCombination,previewCombination,pushCombination,scheduledCombinations} from '../../../lib/combination-service';
 import {readSourceDefinitions} from '../../../lib/source-definition-service';
-import {readCustomMaterials,saveCustomMaterial,refreshCustomMaterial} from '../../../lib/custom-material-service';
+import {readCustomMaterials,saveCustomMaterial,refreshCustomMaterial,saveCustomMaterialSchedule,scheduledCustomMaterials} from '../../../lib/custom-material-service';
 export const dynamic='force-dynamic';
 async function handle(request:Request,context:any){
  const url=new URL(request.url);const path=url.pathname.replace(/^\/api\//,'');
@@ -79,6 +79,8 @@ async function handle(request:Request,context:any){
     else if(body.operation==='combinationHistory')result=await combinationState(body.id);
     else if(body.operation==='customMaterials')result=await readCustomMaterials(new URLSearchParams(body.query||{}));
     else if(body.operation==='configureCustomMaterial')result=await saveCustomMaterial(body.value);
+    else if(body.operation==='configureCustomMaterialSchedule')result=await saveCustomMaterialSchedule(body.value);
+    else if(body.operation==='runCustomMaterialUpdate')result=await scheduledCustomMaterials();
     else if(body.operation==='syncDraws')result=await svc.syncDraws();
     else if(body.operation==='syncHistory')result=await svc.syncHistory(body.year);
     else if(body.operation==='recheck')result=await svc.recheckResults(body);
@@ -92,6 +94,7 @@ async function handle(request:Request,context:any){
    case 'settings':{
     if(body.key==='collectionSchedule'){result=await svc.saveCollectionSchedule(body.value);break;}
     if(body.key==='drawSchedule'){result=await svc.saveDrawSchedule(body.value);break;}
+    if(body.key==='customMaterialSchedule'){result=await saveCustomMaterialSchedule(body.value);break;}
     if(!['rules','drawSource','historySource','overviewDisplay'].includes(body.key))throw Error('未知设置');
     if(body.key==='overviewDisplay'&&(![10,20,50].includes(body.value.range)||!['line','area'].includes(body.value.chart)||typeof body.value.showLoss!=='boolean'))throw Error('图表配置无效');
     if(body.key==='drawSource'&&body.value.url)svc.checkUrl(body.value.url);

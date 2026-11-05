@@ -3,6 +3,7 @@ import {useEffect,useState,useRef} from 'react';
 import {Plus,Save,X,RefreshCw,Settings2,ArrowRight,FilePlus2,ArrowUpRight,ShieldCheck} from 'lucide-react';
 import {OPPOSITE_PAIRS,calendarPeriods,issueText} from '../lib/custom-material.mjs';
 import ManualKillPanel,{ManualKillForm,freshManualKill} from './manual-kill-panel';
+import CustomMaterialAutomation from './custom-material-automation';
 import './custom-material.css';
 type Any=any;
 const percent=(v:Any)=>v===null||v===undefined?'—':Number(v).toFixed(1)+'%';
@@ -24,6 +25,7 @@ export default function CustomMaterialPanel({materialId='',group='',api,run,busy
  const addButton=<button className="primary" disabled={!canEdit||busy} onClick={()=>setForm(fresh())}><Plus size={16}/>新增自建资料</button>;
  if(materialId&&plan?.type==='manual-kill')return <ManualKillPanel data={data} api={api} run={run} busy={busy} user={user} onReload={load} onFilter={filter} filters={filters}/>;
  return <div className="custom-material-page">
+  <CustomMaterialAutomation value={data?.automation}/>
   {error&&<div className="alert danger" role="alert">{error}</div>}{notice&&<div className="alert" role="status">{notice}</div>}
   {!materialId&&<><section className="self-intro"><div><span>YOUR OWN REFERENCE</span><h2>{group==='kill-numbers'?'自创杀码，逐期独立复核':'按你的规则，建立独立资料栏目'}</h2><p>可按n−k生成冲肖杀肖，也可粘贴自创杀码；每套资料均有独立页面和核验统计。</p></div><div className="row-actions">{group!=='kill-numbers'&&addButton}{manualButton}</div></section><div className="self-scope-tabs"><a href="/?view=self-materials">全部自建资料</a><a href="/?view=self-materials&group=lag-zodiac">冲肖杀肖</a><a href="/?view=self-materials&group=kill-numbers">杀码</a></div>
    <div className="self-card-grid">{displayedItems.map((item:Any)=><a href={'/self-materials/'+item.id} className="self-material-card" key={item.id}><header><span className="self-lag">{item.type==='manual-kill'?'杀码':'n−'+item.lag}</span><ArrowUpRight size={18}/></header><h2>{item.displayName||item.name}</h2><p>{item.year} 年 · {item.type==='manual-kill'?'手工杀码 · 标称'+item.declaredCount+'码':'目标期减 '+item.lag+' 期 · 冲肖杀一肖'}</p><footer><div><small>全部已核对正确率</small><strong>{percent(item.stats?.rate)}</strong></div><span>正确 {item.stats?.win||0} / 错误 {item.stats?.loss||0}<small>{item.stats?.total||0} 期资料</small></span></footer></a>)}</div>
