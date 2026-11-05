@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {periodZodiacResolver} from '../lib/period-zodiacs.mjs';
+import {emptyReference,ZODIACS} from '../lib/number-reference.mjs';
+const old=Object.fromEntries(Array.from({length:49},(_,i)=>[i+1,ZODIACS[(5-i%12+12)%12]])),profile=emptyReference(2026);
+for(let n=1;n<=49;n++){const z=ZODIACS[(6-(n-1)%12+12)%12];(profile.zodiacs[z]||=[]).push(n);}
+const prior=Array.from({length:7},(_,i)=>{const numbers=Array.from({length:7},(_,j)=>i*7+j+1);return {year:2025,issue:String(359+i).padStart(3,'0'),draw_date:'2025-12-'+(25+i),numbers,zodiacs:numbers.map(n=>old[n]),provenance:'https://history.example/2025.html'};});
+const targets=[{year:2026,issue:'001',draw_date:'2026-01-01'},{year:2026,issue:'047',draw_date:'2026-02-16'},{year:2026,issue:'048',draw_date:'2026-02-17'}];
+test('the first 47 2026 periods use a full snake map evidenced by earlier-year draws, then the configured horse map',()=>{const resolve=periodZodiacResolver(2026,profile,[...prior,...targets]);assert.equal(resolve('001').zodiacs[1],'蛇');assert.equal(resolve('047').zodiacs[29],'牛');assert.equal(resolve('048').zodiacs[1],'马');assert.match(resolve('001').origin,/历史对照/);assert.equal(Object.keys(resolve('001').zodiacs).length,49);});
+test('an incomplete or conflicting older map cannot bypass the existing mismatch guard',()=>{const missing=periodZodiacResolver(2026,profile,[...prior.slice(1),...targets]);assert.equal(missing('001').zodiacs[1],'马');const bad={...prior[0],zodiacs:['马',...prior[0].zodiacs.slice(1)]};assert.equal(periodZodiacResolver(2026,profile,[...prior,bad,...targets])('001').zodiacs[1],'马');});
+test('a target outcome cannot build its own reference, and an undated period never guesses a date from its issue',()=>{const target={...prior[0],year:2026,issue:'001',draw_date:'2026-01-01'};assert.equal(periodZodiacResolver(2026,profile,[target])('001').zodiacs[1],'马');assert.equal(periodZodiacResolver(2026,profile,prior)('001').zodiacs[1],'马');assert.equal(periodZodiacResolver(2026,{...profile,enabled:false},[...prior,...targets])('001'),null);});

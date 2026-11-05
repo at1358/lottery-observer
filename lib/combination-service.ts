@@ -14,8 +14,8 @@ async function setting(key:string,fallback:any={}){const [r]=await list('SELECT 
 async function put(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
 async function hash(value:any){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)))),b=>b.toString(16).padStart(2,'0')).join('');}
 async function audit(status:string,message:string,count=0){await run('INSERT INTO jobs(id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),'组合计算',status,message,count,stamp());}
-async function plans(){return (await list("SELECT value FROM settings WHERE key LIKE 'combinationPlan:%' ORDER BY key")).map(r=>JSON.parse(r.value));}
-async function findPlan(id:string){if(!/^[a-f0-9-]{36}$/.test(id||''))throw Error('组合编号无效');const p=await setting(planKey(id),null);if(!p)throw Error('找不到该组合');return p;}
+async function plans(){return (await list("SELECT value FROM settings WHERE key LIKE 'combinationPlan:%' AND json_extract(value,'$.deletedAt') IS NULL ORDER BY key")).map(r=>JSON.parse(r.value));}
+async function findPlan(id:string){if(!/^[a-f0-9-]{36}$/.test(id||''))throw Error('组合编号无效');const p=await setting(planKey(id),null);if(!p||p.deletedAt)throw Error('找不到该组合或组合已删除');return p;}
 async function updateRuntime(id:string,patch:any){
  for(let attempt=0;attempt<4;attempt++){const key=runtimeKey(id),[row]=await list('SELECT value FROM settings WHERE key=?',key),value=JSON.stringify({...row?JSON.parse(row.value):{},...patch});const r=row?await run('UPDATE settings SET value=? WHERE key=? AND value=?',value,key,row.value):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,value);if(r.meta.changes)return;}
  throw Error('组合状态正在更新，请稍后重试');
@@ -28,7 +28,7 @@ const algorithm=(p:any)=>({year:p.year,baseMode:p.baseMode||(p.baseNumbers.lengt
 async function combinationAlgorithm(plan:any){const ids=customIds(plan);if(!ids.length)return algorithm(plan);const values=await customMaterialSummaries();return {...algorithm(plan),customRules:ids.sort().map(id=>{const p=values.find(p=>p.id===id);return {id,ruleKey:p?materialRuleKey(p):null};})};}
 export async function saveCombination(input:any,canManagePush:boolean){
  const value=validateCombination(input),id=input.id||crypto.randomUUID(),old=input.id?await findPlan(input.id):null;
- if((value.push.enabled||old?.push.enabled)&&!canManagePush)throw Error('企业微信群推送只能由管理员配置；请联系管理员编辑该组合');
+ if((value.push.enabled||old?.push.enabled)&&JSON.stringify(value.push)!==JSON.stringify(old?.push)&&!canManagePush)throw Error('企业微信群推送只能由管理员配置；请联系管理员编辑该组合');
  if(old&&input.revision!==old.revision){const e:any=Error('组合已被其他页面修改，请重新载入后保存');e.status=409;throw e;}
  if(!old&&(await plans()).length>=50)throw Error('最多保存50个组合');
  const ids=sourceIds(value);for(const sourceId of ids)if(!(await list('SELECT id FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId)).length)throw Error('所选采集栏目已删除，请重新选择');
@@ -38,7 +38,8 @@ export async function saveCombination(input:any,canManagePush:boolean){
  const serialized=JSON.stringify(plan),saved=old?await run('UPDATE settings SET value=? WHERE key=? AND value=?',serialized,planKey(id),JSON.stringify(old)):await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',planKey(id),serialized);if(!saved.meta.changes)throw Error('组合存在并发修改，请重新载入');
  if(!old||JSON.stringify(old.calculation)!==JSON.stringify(value.calculation))await updateRuntime(id,{nextCalc:nextCalculation(plan),lastError:null});
  if(old&&JSON.stringify(algorithm(old))!==JSON.stringify(algorithm(plan)))await updateRuntime(id,{recoveryActive:false,recoveryDate:null,nextRecoveryAt:null,recoveryAttemptId:null,lastResultId:null,lastError:null});
- await audit('success',`组合「${plan.name}」已保存，共${plan.steps.length}项条件；${plan.calculation.enabled?'自动计算已启用':'手动计算'}；${plan.push.enabled?'每天 '+plan.push.time+' 推送':'自动推送未启用'}`);return {plan};
+ await audit('success',`组合「${plan.name}」已保存，共${plan.steps.length}项条件；${plan.calculation.enabled?'自动计算已启用':'手动计算'}；${plan.push.enabled?'每天 '+plan.push.time+' 推送':'自动推送未启用'}`);
+ const {refreshCombinationSimulations}=await import('./simulation-service');const simulations=await refreshCombinationSimulations(id);return {plan,simulations};
 }
 export async function saveCombinationPush(input:any){const old=await findPlan(input.id);return saveCombination({...old,revision:input.revision,push:{enabled:input.enabled,time:input.time}},true);}
 async function target(plan:any,input:any={}){
@@ -78,6 +79,7 @@ async function saveResult(plan:any,period:any,computed:any,collection:any[],pers
  const key=(period.issue?'combinationResult:':'combinationAttempt:')+plan.id+':'+period.year+':'+(period.issue||period.date)+':'+fingerprint;
  const result={...computed,collection,id:key,planId:plan.id,planName:plan.name,planRevision:plan.revision||null,algorithmHash,fingerprint,periodDate:period.date,drawn:period.drawn,historical:period.drawn||!!computed.historical,createdAt:stamp()};
  if(!persist)return {...result,preview:true};
+ await findPlan(plan.id);
  await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',key,JSON.stringify(result));const saved=await setting(key);
  await updateRuntime(plan.id,{lastCalc:stamp(),lastResultId:key,lastStatus:saved.status,lastError:saved.errors.join('；')||null});
  await audit(saved.status==='complete'?'success':'warning',`「${plan.name}」${period.year}年${period.issue?'第'+period.issue+'期':'期数待确认'}：${saved.status==='complete'?'剩余候选 '+saved.total+' 个':saved.errors.join('；')}`,saved.total||0);
@@ -146,16 +148,17 @@ export async function combinationReportFor(id:string){
  const plan=await findPlan(id),snapshots=(await list("SELECT value FROM settings WHERE key LIKE ?",'combinationResult:'+plan.id+':%')).map(row=>JSON.parse(row.value));
  return {plan,algorithmHash:await hash(await combinationAlgorithm(plan)),report:await periodReport(plan,snapshots)};
 }
+export async function recalculateCombinationHistory(input:any){const plan=await findPlan(input.id);for(const id of customIds(plan))await refreshCustomMaterial(id);const report=await combinationReportFor(plan.id),{refreshCombinationSimulations}=await import('./simulation-service'),simulations=await refreshCombinationSimulations(plan.id);await audit('success',`「${plan.name}」全部历史已重算：成功 ${report.report.overall.computed} 期，已核对 ${report.report.overall.settled} 期`,report.report.overall.computed);return {overall:report.report.overall,simulations};}
 export async function combinationState(selectedId?:string,selectedIssue?:string){
  const values=await plans(),sources=await list('SELECT id,name,kind,year,url,error,enabled FROM sources WHERE deleted_batch IS NULL ORDER BY sort_order,created_at'),runtimeRows=await list("SELECT key,value FROM settings WHERE key LIKE 'combinationRuntime:%'"),profiles=(await list("SELECT value FROM settings WHERE key LIKE 'sourceReference:%'")).map(r=>JSON.parse(r.value));
  const runtimes=new Map(runtimeRows.map(r=>[r.key.slice('combinationRuntime:'.length),JSON.parse(r.value)]));
  const selected=selectedId?values.find(p=>p.id===selectedId):null,resultRows=selected?await list("SELECT value FROM settings WHERE key LIKE ? ORDER BY json_extract(value,'$.createdAt') DESC LIMIT 20",'combinationResult:'+selected.id+':%'):[];
  const report=selected?await periodReport(selected,(await list("SELECT value FROM settings WHERE key LIKE ?",'combinationResult:'+selected.id+':%')).map(r=>JSON.parse(r.value))):null;
- const selectedRuntime=selected?runtimes.get(selected.id):null,currentResult=selectedRuntime?.lastResultId?await setting(selectedRuntime.lastResultId,null):null;
+ const selectedRuntime=selected?runtimes.get(selected.id):null,lastStored=selectedRuntime?.lastResultId?await setting(selectedRuntime.lastResultId,null):null,activeHash=selected?await hash(await combinationAlgorithm(selected)):null,currentResult=lastStored?.algorithmHash===activeHash?(lastStored.drawn?report?.periods.find((r:any)=>r.issue===lastStored.issue)||lastStored:lastStored):report?.periods[0]||null;
  const periodResult=selectedIssue?report?.periods.find((r:any)=>r.issue===String(Number(selectedIssue)).padStart(3,'0'))||null:null;
  const compactReport=report?{...report,periods:report.periods.map((r:any)=>({id:r.id,year:r.year,issue:r.issue,status:r.status,total:r.total,numbers:r.numbers,createdAt:r.createdAt,backtest:r.backtest,historical:r.historical,settlement:r.settlement,snapshotCount:r.snapshotCount,errors:r.errors}))}:null;
  const decorated=[];for(const plan of values){const runtime=runtimes.get(plan.id)||{},last=runtime.lastResultId?await setting(runtime.lastResultId,null):null;decorated.push({...plan,runtime,lastResult:last?{id:last.id,issue:last.issue,year:last.year,status:last.status,total:last.total,numbers:last.numbers,createdAt:last.createdAt,errors:last.errors}:null});}
- return {report:compactReport,periodResult,currentResult,plans:decorated,sources,customMaterials:await customMaterialSummaries(),profiles,results:resultRows.map(r=>JSON.parse(r.value)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
+ return {report:compactReport,periodResult,currentResult,plans:decorated,sources,customMaterials:await customMaterialSummaries(),profiles,results:resultRows.map(r=>JSON.parse(r.value)).filter(r=>r.algorithmHash===activeHash),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
 }
 async function resultToSend(plan:any,selectedId?:string,manual=false){
  let result=selectedId?await setting(selectedId,null):null;

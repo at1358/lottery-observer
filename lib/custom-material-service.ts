@@ -1,6 +1,6 @@
 import {list,run,db,stmt} from './db';
 import {validateCustomMaterial,buildCustomMaterial,annualPeriods,customMaterialLabel,materialRuleKey} from './custom-material.mjs';
-import {referenceCoverage,referenceNumberRows} from './number-reference.mjs';
+import {periodZodiacResolver} from './period-zodiacs.mjs';
 import {customMaterialSchedulePlan} from './custom-material-schedule.mjs';
 const planKey=(id:string)=>'customMaterialPlan:'+id,rowsKey=(id:string)=>'customMaterialRows:'+id;
 const stamp=()=>new Date().toISOString();
@@ -79,14 +79,15 @@ export async function readCustomMaterials(params=new URLSearchParams()){
  return {items,automation,plan:{...plan,records:undefined},displayName:customMaterialLabel(plan,stored.stats),stats:stored.stats,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,lastCheckedAt:stored.lastCheckedAt};
 }
 export async function customCombinationData(ids:string[],year:number){
- const materials=[],records=[];const profile=await setting('numberReference:'+year),complete=profile?.year===year&&profile.enabled!==false&&referenceCoverage(profile).zodiacs.count===49,zodiacs=complete?Object.fromEntries(referenceNumberRows(profile).map((r:any)=>[r.number,r.zodiac])):null;
+ const materials=[],records=[];const profile=await setting('numberReference:'+year),draws=await list('SELECT * FROM draws WHERE year BETWEEN ? AND ?',year-2,year),expected=await setting('expectedDrawPeriods',{}),resolveZodiacs=periodZodiacResolver(year,profile,draws,Object.values(expected));
  for(const id of [...new Set(ids)]){
   const plan=await setting(planKey(id));if(!plan)continue;const pack=await setting(rowsKey(id),{rows:[]}),kind=plan.type==='manual-kill'?'杀号码':'杀肖',ruleKey=materialRuleKey(plan);
   materials.push({id:plan.id,name:plan.name,year:plan.year,kind,ruleKey});
   if(plan.year!==year)continue;
   for(const row of pack.rows){
    const valid=plan.type==='manual-kill'?row.valid&&row.killNumbers.length>0:!!row.killZodiac,values=plan.type==='manual-kill'?row.killNumbers:row.killZodiac?[row.killZodiac]:[],raw=plan.type==='manual-kill'?row.rawLines.map((r:any)=>r.raw).join('\n'):`${row.issue}期：绝杀一肖【${row.killZodiac||'待补'}】\n依据：${row.sourceYear}年第${row.sourceIssue}期 ${row.sourceZodiac||'待补'}${row.sourceNumber||''}\n对应号码：${row.killNumbers.join(' ')}`;
-   const parsed={valid,values,warnings:valid?[]:[row.reason],...(kind==='杀肖'&&zodiacs?{sourceRules:{zodiacs}}:{})},recordKey=JSON.stringify([ruleKey,row.issue,row.basisKey,row.killNumbers,parsed.sourceRules||null]);
+   const mapping=resolveZodiacs(row.issue),zodiacs=mapping?.zodiacs;
+   const parsed={valid,values,warnings:valid?[]:[row.reason],...(kind==='杀肖'&&zodiacs?{sourceRules:{zodiacs,mappingOrigin:mapping.origin,mappingProvenance:mapping.provenance}}:{})},recordKey=JSON.stringify([ruleKey,row.issue,row.basisKey,row.killNumbers,parsed.sourceRules||null]);
    records.push({id:'custom:'+id+':'+row.issue,materialId:id,year,issue:row.issue,kind,raw,parsed,recordKey,first_seen:row.generatedAt||row.firstSeen,historical:row.mode!=='forecast'});
   }
  }

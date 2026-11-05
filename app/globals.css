@@ -21,3 +21,5 @@
 .push-status{display:flex;align-items:center;gap:8px;color:#177963;padding:22px 0 0}
 .heading-actions .review-results{display:inline-flex}
 @media(max-width:1050px){.wecom-layout{grid-template-columns:minmax(0,1fr)}}
+
+.page-jump{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap}.page-jump label{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.page-jump input{width:66px;min-width:0;padding:7px 8px;border:1px solid #d9e4dc;border-radius:7px;background:#fff}.page-jump .secondary{padding:7px 10px}.table-footer>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}

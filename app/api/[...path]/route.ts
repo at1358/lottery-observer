@@ -1,3 +1,4 @@
+import {deletePlan} from '../../../lib/plan-lifecycle';
 import {getChatGPTUser} from '../../chatgpt-auth';
 import * as svc from '../../../lib/service';
 import * as account from '../../../lib/accounts';
@@ -5,7 +6,7 @@ import * as manage from '../../../lib/manage';
 import {exportBackup} from '../../../lib/backup';
 import {readNumberReference,saveNumberReference} from '../../../lib/reference-service';
 import {pushState,savePush,testPush,sendLatestDraw} from '../../../lib/wecom';
-import {combinationState,saveCombination,saveCombinationPush,calculateCombination,previewCombination,pushCombination,scheduledCombinations} from '../../../lib/combination-service';
+import {combinationState,recalculateCombinationHistory,saveCombination,saveCombinationPush,calculateCombination,previewCombination,pushCombination,scheduledCombinations} from '../../../lib/combination-service';
 import {readSourceDefinitions} from '../../../lib/source-definition-service';
 import {readCustomMaterials,saveCustomMaterial,refreshCustomMaterial,saveCustomMaterialSchedule,scheduledCustomMaterials} from '../../../lib/custom-material-service';
 import {readSimulations,saveSimulation,refreshSimulation,saveSimulationSelection,simulationCandidates,scheduledSimulations} from '../../../lib/simulation-service';
@@ -61,8 +62,11 @@ async function handle(request:Request,context:any){
    case 'wecom/save':result=await savePush(body);break;
    case 'wecom/test':result=await testPush();break;
    case 'wecom/send':result=await sendLatestDraw(true);break;
+   case 'combinations/delete':result=await deletePlan('combination',body);break;
+   case 'simulations/delete':result=await deletePlan('simulation',body);break;
    case 'combinations/save':{const actor=await account.requirePrincipal(true);result=await saveCombination(body,actor.role==='admin');break;}
    case 'combinations/preview':result=await previewCombination(body);break;
+   case 'combinations/recalculate':result=await recalculateCombinationHistory(body);break;
    case 'combinations/calculate':result=await calculateCombination(body);break;
    case 'combinations/push-config':await account.requirePrincipal(true,true);result=await saveCombinationPush(body);break;
    case 'combinations/send':await account.requirePrincipal(true);result=await pushCombination(body);break;
@@ -88,6 +92,9 @@ async function handle(request:Request,context:any){
     else if(body.operation==='configureCustomMaterialSchedule')result=await saveCustomMaterialSchedule(body.value);
     else if(body.operation==='runCustomMaterialUpdate')result=await scheduledCustomMaterials();
     else if(body.operation==='simulations')result=await readSimulations(new URLSearchParams(body.query||{}));
+    else if(body.operation==='refreshSimulation'){const r=await refreshSimulation(body.id,'repair');result={stats:r.stats,lastCheckedAt:r.lastCheckedAt};}
+    else if(body.operation==='recalculateCombination')result=await recalculateCombinationHistory(body);
+    else if(body.operation==='configureCombination')result=await saveCombination(body.value,true);
     else if(body.operation==='configureSimulation')result=await saveSimulation(body.value);
     else if(body.operation==='runSimulations')result=await scheduledSimulations();
     else if(body.operation==='syncDraws')result=await svc.syncDraws();

@@ -1,4 +1,5 @@
 import {db,list,run,stmt,batches} from './db';
+import {restorePlan} from './plan-lifecycle';
 import {descendants,validateParent} from './directory.mjs';
 const stamp=()=>new Date().toISOString(),uuid=()=>crypto.randomUUID();
 function ids(value:any){if(!Array.isArray(value)||!value.length||value.length>500)throw Error('每次请选择 1–500 项');if(value.some(x=>typeof x!=='string'||x.length>100))throw Error('选择项目无效');return [...new Set(value)] as string[];}
@@ -24,7 +25,7 @@ export async function deleteFolder(input:any){const fs=await folders(),folder=fs
  for(const s of sources)commands.push(stmt('UPDATE sources SET folder_id=NULL WHERE id=?',s.id));
  await batches(commands);await audit(`已删除目录 ${folder.name} 及下级目录，${sources.length} 个栏目移至未分类，资料保留。`);return {batch,count:branch.size,moved:sources.length};}
 export async function trashList(){return list('SELECT id,type,name,count,created_at FROM trash WHERE restored_at IS NULL ORDER BY created_at DESC LIMIT 100');}
-export async function restore(batch:string){const [entry]=await list('SELECT * FROM trash WHERE id=? AND restored_at IS NULL',batch);if(!entry)throw Error('回收站项目不存在或已恢复');const payload=JSON.parse(entry.payload),commands:any[]=[];
+export async function restore(batch:string){const [entry]=await list('SELECT * FROM trash WHERE id=? AND restored_at IS NULL',batch);if(!entry)throw Error('回收站项目不存在或已恢复');if(['combination','simulation'].includes(entry.type))return restorePlan(entry);const payload=JSON.parse(entry.payload),commands:any[]=[];
  if(entry.type==='sources'){
   // Restore paused, so a restore cannot silently restart scraping.
   commands.push(stmt('UPDATE sources SET deleted_batch=NULL,enabled=0 WHERE deleted_batch=?',batch));
