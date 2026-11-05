@@ -3,9 +3,14 @@ import {appendFileSync,readFileSync} from 'node:fs';
 const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
 const RealDate=Date;
-if(process.env.QA_CLOCK_FILE){const now=()=>{try{const value=RealDate.parse(readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim());return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
+if(process.env.QA_CLOCK_FILE){const now=()=>{try{const text=readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim();if(text.startsWith('{')){const clock=JSON.parse(text),base=RealDate.parse(clock.base),started=Number(clock.startedAt);if(Number.isFinite(base)&&Number.isFinite(started))return base+RealDate.now()-started;}const value=RealDate.parse(text);return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-2025-history.example'){
+  const zodiacs=[...'鼠牛虎兔龙蛇马羊猴鸡狗猪'];let html='<ul id="msg">';
+  for(let issue=365;issue>=1;issue--){let date=new RealDate(RealDate.UTC(2025,0,issue)).toISOString().slice(0,10);if([240,241,243].includes(issue))date=date.replace('-08-','-8-');const zodiac=zodiacs[issue%12];html+=`<li><dt><b>${String(issue).padStart(3,'0')}</b>期(开奖时间:${date})</dt><dl>`+[1,2,3,4,5,6,7].map(number=>`<div class="ball"><p><span>${String(number).padStart(2,'0')}</span><b>${zodiac}</b></p></div>`).join('')+'</dl></li>';}
+  return new Response(html+'</ul>',{headers:{'Content-Type':'text/html; charset=utf-8'}});
+ }
  if(url.hostname.startsWith('qa-')&&process.env.QA_FETCH_LOG)appendFileSync(process.env.QA_FETCH_LOG,JSON.stringify({url:url.href,at:new Date().toISOString()})+'\n');
  if(url.hostname==='qa-hourly.example'){
   const name=url.pathname.slice(1);if(!['base','tail','kill'].includes(name))return new Response('Temporary source error',{status:503});
@@ -46,7 +51,10 @@ globalThis.fetch=async(input,options)=>{
   const date=new Date(Date.now()+8*3600000).toISOString().slice(0,10),numbers=[8,28,40,3,38,49,17],zodiacs=[...'猪兔兔龙蛇马虎'];
   return new Response('<ul id="msg"><li><dt>366期 '+date+'</dt><div class="ball">'+numbers.map((n,i)=>'<p><span>'+n+'</span><b>'+zodiacs[i]+'</b></p>').join('')+'</div></li></ul>');
  }
- if(url.hostname!=='qyapi.weixin.qq.com')return fetchOriginal(input,options);
+ if(url.hostname!=='qyapi.weixin.qq.com'){
+  if(['127.0.0.1','localhost'].includes(url.hostname)&&/^5\d{3}$/.test(url.port))return fetchOriginal(input,options);
+  throw Error('Isolated QA: external request has no fixture');
+ }
  if(!['qa-only-robot-key-001','qa-only-robot-failure'].includes(url.searchParams.get('key')))throw Error('Only fake robot keys are allowed in QA');
  appendFileSync(process.env.QA_WECOM_LOG,JSON.stringify({body:JSON.parse(options.body),at:new Date().toISOString()})+'\n');
  await new Promise(resolve=>setTimeout(resolve,80));

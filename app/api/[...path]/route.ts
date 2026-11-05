@@ -8,6 +8,7 @@ import {pushState,savePush,testPush,sendLatestDraw} from '../../../lib/wecom';
 import {combinationState,saveCombination,saveCombinationPush,calculateCombination,previewCombination,pushCombination,scheduledCombinations} from '../../../lib/combination-service';
 import {readSourceDefinitions} from '../../../lib/source-definition-service';
 import {readCustomMaterials,saveCustomMaterial,refreshCustomMaterial,saveCustomMaterialSchedule,scheduledCustomMaterials} from '../../../lib/custom-material-service';
+import {readSimulations,saveSimulation,refreshSimulation,saveSimulationSelection,simulationCandidates,scheduledSimulations} from '../../../lib/simulation-service';
 export const dynamic='force-dynamic';
 async function handle(request:Request,context:any){
  const url=new URL(request.url);const path=url.pathname.replace(/^\/api\//,'');
@@ -22,6 +23,8 @@ async function handle(request:Request,context:any){
    if(path==='wecom')return Response.json(await pushState(),{headers:{'Cache-Control':'no-store'}});
    if(path==='combinations')return Response.json(await combinationState(url.searchParams.get('plan')||undefined,url.searchParams.get('issue')||undefined),{headers:{'Cache-Control':'no-store'}});
    if(path==='custom-materials')return Response.json(await readCustomMaterials(url.searchParams),{headers:{'Cache-Control':'no-store'}});
+   if(path==='simulations')return Response.json(await readSimulations(url.searchParams),{headers:{'Cache-Control':'no-store'}});
+   if(path==='simulations/candidates')return Response.json(await simulationCandidates(url.searchParams.get('combination')||''),{headers:{'Cache-Control':'no-store'}});
    if(path==='source-definition')return Response.json(await readSourceDefinitions(url.searchParams.get('source')||'',url.searchParams.get('year')),{headers:{'Cache-Control':'no-store'}});
    if(path==='history')return Response.json(await svc.history(url.searchParams.get('id')||''));
    if(path==='users')return Response.json(await account.users());
@@ -65,6 +68,9 @@ async function handle(request:Request,context:any){
    case 'combinations/send':await account.requirePrincipal(true);result=await pushCombination(body);break;
    case 'custom-materials/save':result=await saveCustomMaterial(body);break;
    case 'custom-materials/recheck':{const r=await refreshCustomMaterial(body.id);result={stats:r.stats,lastCheckedAt:r.lastCheckedAt};break;}
+   case 'simulations/save':result=await saveSimulation(body);break;
+   case 'simulations/recalculate':{const r=await refreshSimulation(body.id);result={stats:r.stats,lastCheckedAt:r.lastCheckedAt};break;}
+   case 'simulations/selection':result=await saveSimulationSelection(body);break;
    case 'source-toggle':result=await svc.toggleSource(body.id,body.enabled===true);break;
    case 'crawl':result=await svc.crawl(body.id,body.text);break;
    case 'draw':result=await svc.saveDraw(body);break;
@@ -81,8 +87,11 @@ async function handle(request:Request,context:any){
     else if(body.operation==='configureCustomMaterial')result=await saveCustomMaterial(body.value);
     else if(body.operation==='configureCustomMaterialSchedule')result=await saveCustomMaterialSchedule(body.value);
     else if(body.operation==='runCustomMaterialUpdate')result=await scheduledCustomMaterials();
+    else if(body.operation==='simulations')result=await readSimulations(new URLSearchParams(body.query||{}));
+    else if(body.operation==='configureSimulation')result=await saveSimulation(body.value);
+    else if(body.operation==='runSimulations')result=await scheduledSimulations();
     else if(body.operation==='syncDraws')result=await svc.syncDraws();
-    else if(body.operation==='syncHistory')result=await svc.syncHistory(body.year);
+    else if(body.operation==='syncHistory')result=await svc.syncHistory(body.year,body.url);
     else if(body.operation==='recheck')result=await svc.recheckResults(body);
     else if(body.operation==='crawlSource')result=await svc.crawl(body.id);
     else if(body.operation==='runCombinations')result=await scheduledCombinations();

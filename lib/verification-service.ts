@@ -4,6 +4,7 @@ import {rulesWithReference} from './number-reference.mjs';
 import {restoreArchivedDefinitions} from './source-definition-service';
 import {ensureRecommendationHistory,resolveRevisionVerdicts} from './recommendation-history-service';
 import {refreshCustomMaterials} from './custom-material-service';
+import {refreshEnabledSimulations} from './simulation-service';
 
 export async function verifyStoredResults(input:any={}){
  await ensureRecommendationHistory();
@@ -23,6 +24,6 @@ export async function verifyStoredResults(input:any={}){
  const report={...statistics(checked),name:input.name||'全部采集资料',source:input.source||null,year:year?String(year):null,issues:input.issues||null,trigger:input.trigger||'manual',restored,checkedAt:new Date().toISOString()};
  await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value','lastVerification',JSON.stringify(report));
  await run('INSERT INTO jobs(id,source_id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?,?)',crypto.randomUUID(),input.source||null,'开奖复核','success',`${report.trigger==='draw'?'开奖入库后自动复核':'手动复核'}：${report.name}，共 ${report.total} 条，正确 ${report.win}，错误 ${report.loss}，待开奖 ${report.pending}，待复核 ${report.review}，采集失败 ${report.collectionFailed}${restored?'；已补全 '+restored+' 条留档对照':''}`,report.settled,report.checkedAt);
- if(!input.source)await refreshCustomMaterials(year||undefined);
+ if(!input.source){await refreshCustomMaterials(year||undefined);await refreshEnabledSimulations(year||undefined,input.trigger==='draw'?'draw':'recheck');}
  return report;
 }

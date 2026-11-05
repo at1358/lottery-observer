@@ -16,6 +16,10 @@ test('incomplete arrays, duplicate numbers, shifted zodiac arrays and invalid da
  const d=parseHistory(html,2026)[0];
  for(const bad of [{numbers:[1,2]},{zodiacs:['狗']},{drawDate:'2026-02-30'},{numbers:[1,2,3,4,5,6,7]}])assert.throws(()=>validateDraw({...d,...bad},true));
 });
+test('published single-digit history months normalize without inventing dates',()=>{
+ const rows=parseHistory(html.replace('2026-10-29','2026-8-31'),2026);assert.equal(rows.find(r=>r.issue==='302').drawDate,'2026-08-31');
+ assert.throws(()=>parseHistory(html.replace('2026-10-29','2026-2-30'),2026));assert.throws(()=>parseHistory(html.replace('2026-10-29','2026-8-310'),2026));
+});
 const source={enabled:1,tracking_from:'2026-10-29T10:00:00.000Z',cutoff_time:'21:35'};
 const valid={first_seen:'2026-10-29T11:00:00.000Z',parsed:JSON.stringify({valid:true})};
 test('missing current issue remains pending until 21:35 Beijing, then fails independently of network status',()=>{

@@ -142,6 +142,10 @@ async function periodReport(plan:any,snapshots:any[]){
  const backtests=issues.filter(issue=>!eligible.some(r=>r.issue===issue&&r.status==='complete')).map(issue=>({...available.get(issue),id:'backtest:'+plan.id+':'+issue,planId:plan.id,planName:plan.name,algorithmHash,createdAt:stamp(),historical:true,backtest:true,collection:[]}));
  return combinationPeriodReport([...eligible,...backtests],draws);
 }
+export async function combinationReportFor(id:string){
+ const plan=await findPlan(id),snapshots=(await list("SELECT value FROM settings WHERE key LIKE ?",'combinationResult:'+plan.id+':%')).map(row=>JSON.parse(row.value));
+ return {plan,algorithmHash:await hash(await combinationAlgorithm(plan)),report:await periodReport(plan,snapshots)};
+}
 export async function combinationState(selectedId?:string,selectedIssue?:string){
  const values=await plans(),sources=await list('SELECT id,name,kind,year,url,error,enabled FROM sources WHERE deleted_batch IS NULL ORDER BY sort_order,created_at'),runtimeRows=await list("SELECT key,value FROM settings WHERE key LIKE 'combinationRuntime:%'"),profiles=(await list("SELECT value FROM settings WHERE key LIKE 'sourceReference:%'")).map(r=>JSON.parse(r.value));
  const runtimes=new Map(runtimeRows.map(r=>[r.key.slice('combinationRuntime:'.length),JSON.parse(r.value)]));

@@ -16,6 +16,7 @@ import {verifyStoredResults} from './verification-service';
 import {ensureRecommendationHistory,recordRecommendationObservation} from './recommendation-history-service';
 import {repairKingdomInterpretations} from './kingdom-repair-service';
 import {customMaterialSummaries,scheduledCustomMaterials} from './custom-material-service';
+import {scheduledSimulations} from './simulation-service';
 import {collectionWindowOpen,nextSourceCollection,nextCollectionDay} from './collection-retry.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
@@ -204,8 +205,8 @@ export async function syncDraws(){
   await putSetting('drawSync',{lastRun:now(),error:null,count:validated.length});return {count:validated.length,verification};
  }catch(e:any){await putSetting('drawSync',{lastRun:now(),error:e.message});await log('开奖同步','error',e.message);throw e;}
 }
-export async function syncHistory(year?:number){
- const config=await getSetting('historySource',DEFAULT_HISTORY),selected=Number(year||config.year),url=historyUrl(config,selected);checkUrl(url);
+export async function syncHistory(year?:number,explicitUrl?:string){
+ const config=await getSetting('historySource',DEFAULT_HISTORY),selected=Number(year||config.year),url=explicitUrl||historyUrl(config,selected);checkUrl(url);validateReferenceYear(selected);
  try{
   const data=await download(url,true,'https://mvqx1n.dlxyzw.com:1734/');const rows=parseHistory(data.text,selected);let changed=0;
   const existing=new Map((await list('SELECT * FROM draws WHERE year=?',selected)).map(d=>[d.issue,d])),commands=[];
@@ -282,10 +283,11 @@ export async function tick(){
  await finalizeCollections();
  const [remaining]=await list('SELECT COUNT(*) AS count FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?)',now());
  const combinations=await scheduledCombinations();success+=combinations.calculated+combinations.pushed;failed+=combinations.failed;
+ const simulations=await scheduledSimulations();success+=simulations.checked;failed+=simulations.failed;
  const pending=collectionSchedule.enabled===false?0:remaining.count;
  await putSetting('scheduler',{lastRun:now(),success,failed,remaining:pending});
  await log('定时检查',failed?'error':'success',collectionSchedule.enabled===false?'全站自动采集已暂停；开奖同步按原设置运行':`本批检查完成：成功 ${success}，失败 ${failed}，剩余到期栏目 ${pending}`,success);
- return {success,failed,remaining:pending,push:pushResult,combinations,customMaterials};
+ return {success,failed,remaining:pending,push:pushResult,combinations,customMaterials,simulations};
 }
 export async function recheckResults(input:any={}){
  const query=new URLSearchParams();let name='全部采集资料';
