@@ -35,14 +35,18 @@ const input={name:'诸葛孔明【主攻⑨码】',year:2087,kind:'号码',url:'
 const preview=await api('preview',input);assert.equal(preview.total,2);assert.ok(preview.rows.every(r=>r.parsed.valid&&r.raw.split('\n').length===3));
 const direct=await api('preview',{...input,url:'https://qa-zhugeliang.example/article',entry_mode:'direct'});assert.deepEqual(direct.rows.map(r=>r.raw),preview.rows.map(r=>r.raw));
 const source=await api('source',input),originals=db.prepare('SELECT id,raw,first_seen FROM predictions WHERE source_id=? ORDER BY issue').all(source.id);
+db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').run('sourceReference:'+source.id+':2087',JSON.stringify({rules:{definitions:[{field:'numberAttributes',label:'主',numbers:[1,2]},{field:'numberAttributes',label:'攻',numbers:[3,4]}]}}));
 await api('draw',{year:2087,issue:309,number:13,zodiac:'马',drawDate:'2087-11-05',drawnAt:'2087-11-05T13:38:00Z'});
 for(const row of originals){const old=JSON.parse(db.prepare('SELECT parsed FROM predictions WHERE id=?').get(row.id).parsed);delete old.numberGroups;old.valid=false;old.warnings=['标注 9 码，识别到 18 个不同号码'];db.prepare('UPDATE predictions SET parsed=?,latest_parsed=? WHERE id=?').run(JSON.stringify(old),JSON.stringify(old),row.id);}
 const first=originals[0];db.prepare("INSERT INTO collection_periods(id,source_id,year,issue,deadline_at,status,reason,finalized_at) VALUES(?,?,?,?,?,'failed',?,?)").run(crypto.randomUUID(),source.id,2087,'309','2087-11-05T13:35:00Z','当期资料未通过完整性识别','2087-11-05T13:35:00Z');
 await api('recheck',{source:source.id});let rows=(await api('state?source='+source.id)).rows;
 assert.equal(rows.find(r=>r.issue==='309').verdict.status,'win');assert.ok(rows.every(r=>r.parsed.valid&&r.parsed.values.length===18));
+assert.equal(db.prepare('SELECT value FROM settings WHERE key=?').get('sourceReference:'+source.id+':2087'),undefined);
+const auditCount=db.prepare("SELECT COUNT(*) AS n FROM revisions WHERE prediction_id=? AND change_type='audit'").get(first.id).n;
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM revisions WHERE prediction_id=? AND change_type='audit' AND raw LIKE '[系统解析修复：主、攻%'").get(first.id).n,1);
 assert.deepEqual(db.prepare('SELECT id,raw,first_seen FROM predictions WHERE source_id=? ORDER BY issue').all(source.id),originals);
 assert.equal((await api('crawl',{id:source.id})).changed,0);assert.equal((await api('history?id='+first.id)).filter(r=>r.change_type==='prediction').length,0);
-await api('recheck',{source:source.id});assert.equal(db.prepare("SELECT COUNT(*) AS n FROM revisions WHERE prediction_id=? AND change_type='audit'").get(first.id).n,1);
+await api('recheck',{source:source.id});assert.equal(db.prepare("SELECT COUNT(*) AS n FROM revisions WHERE prediction_id=? AND change_type='audit'").get(first.id).n,auditCount);
 // The user's formula18 was saved as a kill with the wrong input format. Changing
 // its purpose must keep its ID/raw text, archive the preceding rule and score hits.
 const formulaText=[1,2,3].map(issue=>String(issue).padStart(3,'0')+'期: 公式18码【'+Array.from({length:18},(_,i)=>String(i+1).padStart(2,'0')).join(' ')+'】').join('\n');
