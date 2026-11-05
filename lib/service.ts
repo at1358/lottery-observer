@@ -48,11 +48,11 @@ export function checkUrl(value:string){
  if(h==='localhost'||h.endsWith('.localhost')||h.endsWith('.local')||h.endsWith('.internal')||h==='metadata.google.internal'||h.includes(':')||/^\d+(?:\.\d+){3}$/.test(h)||!h.includes('.'))throw Error('请使用公开网站域名，不支持内部地址或 IP 地址');
  return u;
 }
-async function download(url:string,strictOrigin=false,referer?:string,exposeRedirect=false){
+async function download(url:string,strictOrigin=false,referer?:string,exposeRedirect=false,transport?:{method:string,body:string}){
  let u=checkUrl(url);
  for(let hop=0;hop<5;hop++){
-  const response=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(18000),headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9','Cache-Control':'no-cache','Referer':referer||u.origin+'/'}});
-  if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(exposeRedirect)return {text:'',url:u.href,redirectUrl:next.href};if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源对服务器请求返回跨站跳转，已停止本次采集；浏览器可能仍可访问，已有留档资料可以继续复核');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
+  const response=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(18000),...(transport?{method:'POST',body:transport.body}:{}),headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9','Cache-Control':'no-cache','Referer':referer||u.origin+'/',...(transport?{'Content-Type':'application/x-www-form-urlencoded','Origin':new URL(referer||url).origin}:{})}});
+  if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(exposeRedirect)return {text:'',url:u.href,redirectUrl:next.href,redirectRequest:[307,308].includes(response.status)?transport:undefined};if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源对服务器请求返回跨站跳转，已停止本次采集；浏览器可能仍可访问，已有留档资料可以继续复核');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
   if(!response.ok)throw Error(`来源网站返回 HTTP ${response.status}`);
   const reader=response.body?.getReader();if(!reader)throw Error('网站没有返回内容');
   const chunks:Uint8Array[]=[];let size=0;
@@ -79,7 +79,7 @@ export async function previewSource(s:any){
  const kindHint=/半头/.test(s.name+' '+sample)&&['自动识别','杀头','头数'].includes(s.kind)?inferKind(s.name+' '+sample):s.kind;
  let extracted:any,lastError:any;
  const options={selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0};
- if(s.url&&['navigation','redirect'].includes(s.entry_mode))extracted=await discoverEntry(s.url,{...options,entryMode:s.entry_mode,keyword:s.entry_keyword||(s.entry_mode==='redirect'?(String(s.name||'').match(/【([^】]+)】/)?.[1]||s.name):''),line:s.entry_mode==='navigation'?s.entry_line:''},(url:string,referer?:string)=>download(url,true,referer,true));
+ if(s.url&&['navigation','redirect'].includes(s.entry_mode))extracted=await discoverEntry(s.url,{...options,entryMode:s.entry_mode,keyword:s.entry_keyword||(s.entry_mode==='redirect'?(String(s.name||'').match(/【([^】]+)】/)?.[1]||s.name):''),line:s.entry_mode==='navigation'?s.entry_line:''},(url:string,referer?:string,transport?:{method:string,body:string})=>download(url,true,referer,true,transport));
  const urls=s.url?[...new Set([s.content_url,s.url].filter(Boolean))]:[''];
  for(const url of extracted?[]:urls){try{const data=url?await sourceDownload(url):{text:String(s.text||''),url:'https://text-preview.invalid/'};extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0},sourceDownload);if(urls[0]!==url)extracted.relocated=true;break;}catch(error){lastError=error;}}
  if(!extracted)throw lastError;

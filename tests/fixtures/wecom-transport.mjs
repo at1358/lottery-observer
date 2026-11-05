@@ -1,11 +1,20 @@
 // Test runner preload. No production code path or live robot is involved.
 import {appendFileSync,readFileSync} from 'node:fs';
+import {publicLoader,publicBridge,publicPortal,publicLine,publicColumn,entryToken} from './public-entry.mjs';
 const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
 const RealDate=Date;
 if(process.env.QA_CLOCK_FILE){const now=()=>{try{const text=readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim();if(text.startsWith('{')){const clock=JSON.parse(text),base=RealDate.parse(clock.base),started=Number(clock.startedAt);if(Number.isFinite(base)&&Number.isFinite(started))return base+RealDate.now()-started;}const value=RealDate.parse(text);return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-bridge-entry.example')return new Response(publicLoader);
+ if(url.hostname==='qa-bridge-script.example')return new Response(publicBridge);
+ if(url.hostname==='qa-bridge-action.example'){
+  const fields=Object.fromEntries(new URLSearchParams(options.body));if(options.method!=='POST'||fields.data!==entryToken||fields.checked!=='ok'||options.headers['Content-Type']!=='application/x-www-form-urlencoded'||options.headers.Origin!=='https://qa-bridge-entry.example')throw Error('Incorrect public bridge submission');
+  return new Response(null,{status:303,headers:{Location:'https://qa-bridge-portal.example/'}});
+ }
+ if(url.hostname==='qa-bridge-portal.example'){if(options.method==='POST'||options.body)throw Error('303 must switch to GET');return new Response(publicPortal);}
+ if(url.hostname==='qa-bridge-line.example')return new Response(url.pathname==='/column.html'?publicColumn:publicLine);
  if(url.hostname==='qa-2025-history.example'){
   const zodiacs=[...'鼠牛虎兔龙蛇马羊猴鸡狗猪'];let html='<ul id="msg">';
   for(let issue=365;issue>=1;issue--){let date=new RealDate(RealDate.UTC(2025,0,issue)).toISOString().slice(0,10);if([240,241,243].includes(issue))date=date.replace('-08-','-8-');const zodiac=zodiacs[issue%12];html+=`<li><dt><b>${String(issue).padStart(3,'0')}</b>期(开奖时间:${date})</dt><dl>`+[1,2,3,4,5,6,7].map(number=>`<div class="ball"><p><span>${String(number).padStart(2,'0')}</span><b>${zodiac}</b></p></div>`).join('')+'</dl></li>';}
