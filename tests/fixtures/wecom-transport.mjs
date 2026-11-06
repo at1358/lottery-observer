@@ -7,6 +7,7 @@ const RealDate=Date;
 if(process.env.QA_CLOCK_FILE){const now=()=>{try{const text=readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim();if(text.startsWith('{')){const clock=JSON.parse(text),base=RealDate.parse(clock.base),started=Number(clock.startedAt);if(Number.isFinite(base)&&Number.isFinite(started))return base+RealDate.now()-started;}const value=RealDate.parse(text);return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-tail-fallback.example')return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+(url.pathname==='/body.html'?'/tail-fallback-body.html':'/tail-fallback-entry.html'))),{headers:{'Content-Type':'text/html; charset=utf-8'}});
  if(url.hostname==='qa-zhugeliang.example')return new Response(url.pathname==='/'?'<a href="/other">310期:【梅兰竹菊】诸葛孔明</a><a href="/article">310期:【主攻⑨码】诸葛孔明</a>':readFileSync(new URL('zhugeliang-nine.html',import.meta.url)),{headers:{'Content-Type':'text/html; charset=utf-8'}});
  if(url.hostname==='qa-bridge-entry.example')return new Response(publicLoader);
  if(url.hostname==='qa-bridge-script.example')return new Response(publicBridge);

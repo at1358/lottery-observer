@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import {evaluate, statistics, parsePrediction, splitPeriods, inferKind, validateDraw, parseMacauSocket, KINDS} from './domain.mjs';
 import {resolveModule} from './content-resolver.mjs';
-import {discoverEntry} from './entry-navigation.mjs';
+import {resolveNavigationSource} from './source-resolver.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -18,6 +18,7 @@ import {repairKingdomInterpretations} from './kingdom-repair-service';
 import {customMaterialSummaries,scheduledCustomMaterials} from './custom-material-service';
 import {scheduledSimulations} from './simulation-service';
 import {collectionWindowOpen,nextSourceCollection,nextCollectionDay} from './collection-retry.mjs';
+import {validateSourceScheduleBatch} from './source-schedules.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -44,8 +45,8 @@ function validateSource(s:any){
 }
 export function checkUrl(value:string){
  const u=new URL(value),h=u.hostname.toLowerCase().replace(/^\[|\]$/g,'');
- if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw Error('仅支持无密码的 HTTP / HTTPS 网页');
- if(h==='localhost'||h.endsWith('.localhost')||h.endsWith('.local')||h.endsWith('.internal')||h==='metadata.google.internal'||h.includes(':')||/^\d+(?:\.\d+){3}$/.test(h)||!h.includes('.'))throw Error('请使用公开网站域名，不支持内部地址或 IP 地址');
+ if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw Object.assign(Error('仅支持无密码的 HTTP / HTTPS 网页'),{code:'UNSAFE_SOURCE_URL'});
+ if(h==='localhost'||h.endsWith('.localhost')||h.endsWith('.local')||h.endsWith('.internal')||h==='metadata.google.internal'||h.includes(':')||/^\d+(?:\.\d+){3}$/.test(h)||!h.includes('.'))throw Object.assign(Error('请使用公开网站域名，不支持内部地址或 IP 地址'),{code:'UNSAFE_SOURCE_URL'});
  return u;
 }
 async function download(url:string,strictOrigin=false,referer?:string,exposeRedirect=false,transport?:{method:string,body:string}){
@@ -79,7 +80,7 @@ export async function previewSource(s:any){
  const kindHint=/半头/.test(s.name+' '+sample)&&['自动识别','杀头','头数'].includes(s.kind)?inferKind(s.name+' '+sample):s.kind;
  let extracted:any,lastError:any;
  const options={selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0};
- if(s.url&&['navigation','redirect'].includes(s.entry_mode))extracted=await discoverEntry(s.url,{...options,entryMode:s.entry_mode,keyword:s.entry_keyword||(s.entry_mode==='redirect'?(String(s.name||'').match(/【([^】]+)】/)?.[1]||s.name):''),line:s.entry_mode==='navigation'?s.entry_line:''},(url:string,referer?:string,transport?:{method:string,body:string})=>download(url,true,referer,true,transport));
+ if(s.url&&['navigation','redirect'].includes(s.entry_mode))extracted=await resolveNavigationSource(s,options,(url:string,referer?:string,transport?:{method:string,body:string})=>download(url,true,referer,true,transport),sourceDownload);
  const urls=s.url?[...new Set([s.content_url,s.url].filter(Boolean))]:[''];
  for(const url of extracted?[]:urls){try{const data=url?await sourceDownload(url):{text:String(s.text||''),url:'https://text-preview.invalid/'};extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0},sourceDownload);if(urls[0]!==url)extracted.relocated=true;break;}catch(error){lastError=error;}}
  if(!extracted)throw lastError;
@@ -87,7 +88,7 @@ export async function previewSource(s:any){
  const rows=splitPeriods(text).map((r:any)=>({...r,kind,parsed:{...parsePrediction(r.raw,kind,s.name),...(extracted.sourceRules&&(s.year===undefined||(r.explicitYear||+s.year+(r.yearOffset||0))===+s.year)?{sourceRules:extracted.sourceRules}:{})}}));
  if(!rows.length)throw Error('未识别到“001期”这样的期数记录。请调整内容选择器，或粘贴网页正文；动态渲染页面需要提供正文接口。');
  const keys=new Set();for(const r of rows){const key=(r.explicitYear||r.yearOffset)+'-'+r.issue;if(keys.has(key))throw Error('选中的内容包含重复期数，可能混入多个资料栏目。请把正文选择器缩小到单个作者的单项资料。');keys.add(key);}
- return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,identity:extracted.identity||s.locator_identity||'',relocated:!!extracted.relocated,followedPages:extracted.visited,navigation:extracted.navigation||[]};
+ return {kind,rows,html:extracted.html,url:extracted.url,selector:extracted.selector,identity:extracted.identity||s.locator_identity||'',relocated:!!extracted.relocated,followedPages:extracted.visited,navigation:extracted.navigation||[],entryFallback:!!extracted.entryFallback};
 }
 export async function saveSource(s:any){
  await finalizeCollections();
@@ -128,6 +129,21 @@ export async function saveCollectionSchedule(input:any){
  const inherited=await list("SELECT * FROM sources WHERE schedule_mode='inherit'");
  await batches(inherited.map(s=>stmt('UPDATE sources SET next_run=? WHERE id=?',nextScheduledRun(effectiveSchedule(s,schedule)),s.id)));
  await log('采集计划','success',schedule.enabled?'全站采集计划已更新：'+(schedule.mode==='daily'?'每天 '+schedule.time:'每 '+schedule.interval+' 分钟'):'已暂停全站自动采集');return schedule;
+}
+export async function saveSourceSchedules(input:any){
+ const {ids,schedule}=validateSourceScheduleBatch(input),selection=JSON.stringify(ids);
+ const selected=await list('SELECT id,name,enabled FROM sources WHERE deleted_batch IS NULL AND id IN (SELECT value FROM json_each(?))',selection);
+ if(selected.length!==ids.length)throw Error('所选来源已删除或不存在，请刷新后重新选择');
+ const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE),effective=schedule.mode==='inherit'?defaults:schedule,nextRun=nextScheduledRun(effective),at=now();
+ const label=schedule.mode==='inherit'?'跟随全站计划':schedule.mode==='daily'?'每天 '+schedule.time:'每 '+schedule.interval+' 分钟';
+ // One guarded update changes all selected schedules or none. Never call the
+ // source editor/recognizer here: URL, samples, paused state and archives stay put.
+ const results=await db().batch([
+  stmt(`UPDATE sources SET schedule_mode=?,daily_time=CASE WHEN ?='daily' THEN ? ELSE daily_time END,interval=CASE WHEN ?='interval' THEN ? ELSE interval END,next_run=? WHERE deleted_batch IS NULL AND id IN (SELECT value FROM json_each(?)) AND (SELECT COUNT(*) FROM sources WHERE deleted_batch IS NULL AND id IN (SELECT value FROM json_each(?)))=?`,schedule.mode,schedule.mode,schedule.time,schedule.mode,schedule.interval,nextRun,selection,selection,ids.length),
+  stmt("INSERT INTO jobs(id,name,status,message,count,created_at) SELECT ?,?,'success',?,?,? WHERE changes()=?",id(),'批量采集时间',`已将 ${ids.length} 个来源设置为${label}（北京时间）；保留启用/暂停状态；${selected.map(s=>s.name).join('、').slice(0,500)}`,ids.length,at,ids.length)
+ ]);
+ if(results[0].meta.changes!==ids.length){const error:any=Error('所选来源已变化，本次未修改，请刷新后重新选择');error.status=409;throw error;}
+ return {count:ids.length,ids,schedule,nextRun,estimatedRun:estimatedExecution(nextRun,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')};
 }
 export async function ingest(source:any,rows:any[],historical=false){
  await ensureRecommendationHistory();
@@ -175,7 +191,7 @@ export async function crawl(sourceId:string,text?:string,options:any={}){
   await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?s.next_run:nextSourceCollection(s,defaults),s.id);
   if(result.navigation?.length)await putSetting('sourceNavigation:'+s.id,{resolvedAt:now(),contentUrl:result.url,steps:result.navigation});
   if(result.relocated)await log('正文自动定位','success',`${s.name}：已确认同一栏目并自动更新正文位置`,1,s.id);
-  await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更`,counts.inserted,s.id);return counts;
+  await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更${result.entryFallback?'；固定入口暂不可用，已使用上次核验的同栏目正文':''}`,counts.inserted,s.id);return counts;
  }catch(e:any){const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),nextSourceCollection(s,defaults,true),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
 }
 export async function saveDraw(input:any,provenance='手动录入',allowUnknownTime=false,deferVerification=false){

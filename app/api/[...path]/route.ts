@@ -50,6 +50,7 @@ async function handle(request:Request,context:any){
    case 'users/update':result=await account.updateUser(body);break;
    case 'account/password':result=await account.changePassword(body);break;
    case 'sources/delete':result=await manage.deleteSources(body);break;
+   case 'sources/schedule':result=await svc.saveSourceSchedules(body);break;
    case 'records/delete':result=await manage.deleteRecords(body);break;
    case 'folders/save':result=await manage.saveFolder(body);break;
    case 'folders/move':result=await manage.move(body);break;

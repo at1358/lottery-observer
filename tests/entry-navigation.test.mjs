@@ -73,6 +73,15 @@ test('a temporary entry fetch failure retries once without changing URL or excee
  let calls=0;const result=await discoverEntry('https://site.example/article',options,async url=>{if(++calls===1)throw Error('fetch failed');return {url,text:content};});assert.equal(calls,2);assert.match(result.text,/305期/);
  calls=0;await assert.rejects(discoverEntry('https://site.example/',options,async()=>{calls++;throw Error('fetch failed');},{maxRequests:1}),/已检查 1 个页面/);assert.equal(calls,1);
 });
+
+test('008111 literal base64 pipe-domain dispatcher is decoded without evaluating its script',async()=>{
+ const dispatcher=String.raw`var jumpcdn=1;function gotourl(){var bajm1=atob('${btoa('window.location.href=')}');var bajm2=atob('${btoa('https://tail|example/')}');bajm2=bajm2.replace(/\|/g,'.');var bajm3=bajm1+'"'+bajm2+'";';eval(bajm3);};gotourl();`;
+ assert.equal(navigationLinks('<script>'+dispatcher+'</script>','https://dispatch.example/api.2.JS','绝杀一尾')[0].url,'https://tail.example/');
+ assert.deepEqual(navigationLinks('<script>'+dispatcher.replace(btoa('window.location.href='),btoa('document.cookie='))+'</script>','https://dispatch.example/api.2.JS','绝杀一尾'),[]);
+ const name='008111.com【绝杀一尾】',body='<section><h2>'+name+'</h2><p>289期:绝杀一尾【555尾】开:蛇38准</p><p>310期:绝杀一尾【222尾】开:？00准</p></section>',pages={'https://entry.example/':'<script src="/entry.js"></script>','https://entry.example/entry.js':dispatcher,'https://tail.example/':'<a href="/tail">绝杀一尾</a>','https://tail.example/tail':body};
+ const result=await discoverEntry('https://entry.example/',{name,keyword:name,kind:'杀尾',sample:'289期:绝杀一尾【555尾】开:蛇38准'},async url=>{assert.ok(url in pages,url);return {url,text:pages[url]};});assert.equal(result.url,'https://tail.example/tail');assert.match(result.text,/310期/);
+ await assert.rejects(discoverEntry('https://tail.example/',{name,keyword:name,kind:'杀尾',sample:'289期:绝杀一尾【555尾】开:蛇38准'},async url=>({url,text:'<a href="/a">绝杀一尾</a><a href="/b">绝杀一尾</a>'})),/多个同名栏目/);
+});
 test('880555 multiline frame template is parsed as published text, without executing it',async()=>{
  const multiline=router.replace('/seryuq/','/payloads/').replace('${suffix','${\n      suffix').replace(': ""}',': ""\n    }');
  const links=navigationLinks('<script>'+multiline+'</script>','https://line.example/#dh','六合宝典【必开㊱码】');assert.equal(links[0].url,'https://line.example/payloads/dh.html');
