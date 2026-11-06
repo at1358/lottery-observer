@@ -8,6 +8,7 @@ import {combinationPeriodReport} from './combination-results.mjs';
 import {collectionWindowOpen,nextRecoveryAt} from './collection-retry.mjs';
 import {customCombinationData,customMaterialSummaries,refreshCustomMaterial} from './custom-material-service';
 import {materialRuleKey} from './custom-material.mjs';
+import {collectedSourceIds,selectCombinationHistory} from './combination-periods.mjs';
 function refuse(code:string,message:string):never{throw Object.assign(Error(message),{code});}
 const stamp=()=>new Date().toISOString(),planKey=(id:string)=>'combinationPlan:'+id,runtimeKey=(id:string)=>'combinationRuntime:'+id;
 async function setting(key:string,fallback:any={}){const [r]=await list('SELECT value FROM settings WHERE key=?',key);return r?JSON.parse(r.value):fallback;}
@@ -22,7 +23,7 @@ async function updateRuntime(id:string,patch:any){
 }
 function nextCalculation(plan:any,at=Date.now()){return plan.calculation.mode==='interval'?new Date(at+plan.calculation.interval*60000).toISOString():nextScheduledRun({...plan.calculation,interval:Math.max(60,plan.calculation.interval)},at);}
 function tomorrow(plan:any){const day=beijingDate(Date.now()+86400000);return new Date(day+'T'+(plan.calculation.mode==='daily'?plan.calculation.time:'00:00')+':00+08:00').toISOString();}
-const sourceIds=(p:any)=>[...new Set<string>([...(p.baseMode==='source'?[p.baseSourceId]:[]),...p.steps.filter((s:any)=>s.type==='source').map((s:any)=>s.sourceId)])];
+const sourceIds=(p:any)=>collectedSourceIds(p) as string[];
 const customIds=(p:any)=>[...new Set<string>([...(p.baseMode==='custom'?[p.baseCustomMaterialId]:[]),...p.steps.filter((s:any)=>s.type==='custom').map((s:any)=>s.materialId)])];
 const algorithm=(p:any)=>({year:p.year,baseMode:p.baseMode||(p.baseNumbers.length?'manual':'all'),baseSourceId:p.baseSourceId||'',...(p.baseMode==='custom'?{baseCustomMaterialId:p.baseCustomMaterialId||''}:{}),baseNumbers:p.baseNumbers,steps:p.steps});
 async function combinationAlgorithm(plan:any){const ids=customIds(plan);if(!ids.length)return algorithm(plan);const values=await customMaterialSummaries();return {...algorithm(plan),customRules:ids.sort().map(id=>{const p=values.find(p=>p.id===id);return {id,ruleKey:p?materialRuleKey(p):null};})};}
@@ -137,16 +138,16 @@ async function periodReport(plan:any,snapshots:any[]){
  const predictions=ids.length?await list(`SELECT * FROM predictions WHERE year=? AND deleted_batch IS NULL AND source_id IN (${ids.map(()=>'?').join(',')})`,plan.year,...ids):[];
  const failures=await list("SELECT source_id,year,issue FROM collection_periods WHERE year=? AND status='failed' AND deleted_batch IS NULL",plan.year);
  const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference),algorithmHash=await hash(await combinationAlgorithm(plan));
- const custom=await customCombinationData(customIds(plan),plan.year),cap=Math.min(366,Math.max(0,...draws.map(d=>+d.issue))+1),current=snapshots.filter(r=>r.algorithmHash===algorithmHash),issues=[...new Set<string>([...predictions.map(p=>p.issue),...failures.filter(f=>ids.includes(f.source_id)).map(f=>f.issue),...custom.records.filter(r=>+r.issue<=cap).map(r=>r.issue),...current.map(r=>r.issue),...(!ids.length?draws.map(d=>d.issue):[])])].sort();
+ const custom=await customCombinationData(customIds(plan),plan.year),cap=Math.min(366,Math.max(0,...draws.map(d=>+d.issue))+1),current=snapshots.filter(r=>r.algorithmHash===algorithmHash),selection=selectCombinationHistory(plan,[...predictions.map(p=>p.issue),...failures.filter(f=>ids.includes(f.source_id)).map(f=>f.issue),...custom.records.filter(r=>+r.issue<=cap).map(r=>r.issue),...current.map(r=>r.issue),...(!ids.length?draws.map(d=>d.issue):[])],predictions,sources,failures),issues=selection.issues,included=new Set(issues);
  const grouped=new Map<string,any[]>();for(const p of predictions){if(!grouped.has(p.issue))grouped.set(p.issue,[]);grouped.get(p.issue)!.push(p);}
  const available=new Map(issues.map(issue=>[issue,computeCombination(plan,{year:plan.year,issue,predictions:grouped.get(issue)||[],sources,rules:effective,failures:failures.filter(f=>f.issue===issue),customMaterials:custom.materials,customRecords:custom.records,draw:draws.find(d=>d.issue===issue)})]));
- const eligible=current.map(r=>{const now=available.get(r.issue);return now?.status==='blocked'?{...r,status:'blocked',numbers:[],total:null,errors:now.errors,trace:now.trace}:r;});
+ const eligible=current.filter(r=>included.has(r.issue)).map(r=>{const now=available.get(r.issue);return now?.status==='blocked'?{...r,status:'blocked',numbers:[],total:null,errors:now.errors,trace:now.trace}:r;});
  const backtests=issues.filter(issue=>!eligible.some(r=>r.issue===issue&&r.status==='complete')).map(issue=>({...available.get(issue),id:'backtest:'+plan.id+':'+issue,planId:plan.id,planName:plan.name,algorithmHash,createdAt:stamp(),historical:true,backtest:true,collection:[]}));
- return combinationPeriodReport([...eligible,...backtests],draws);
+ return {...combinationPeriodReport([...eligible,...backtests],draws),historyScope:selection.scope};
 }
 export async function combinationReportFor(id:string){
  const plan=await findPlan(id),snapshots=(await list("SELECT value FROM settings WHERE key LIKE ?",'combinationResult:'+plan.id+':%')).map(row=>JSON.parse(row.value));
- return {plan,algorithmHash:await hash(await combinationAlgorithm(plan)),report:await periodReport(plan,snapshots)};
+ const algorithmHash=await hash(await combinationAlgorithm(plan));return {plan,algorithmHash,...plan.historyScope==='collected-common'?{simulationRuleHash:await hash({algorithmHash,historyScope:plan.historyScope})}:{},report:await periodReport(plan,snapshots)};
 }
 export async function recalculateCombinationHistory(input:any){const plan=await findPlan(input.id);for(const id of customIds(plan))await refreshCustomMaterial(id);const report=await combinationReportFor(plan.id),{refreshCombinationSimulations}=await import('./simulation-service'),simulations=await refreshCombinationSimulations(plan.id);await audit('success',`「${plan.name}」全部历史已重算：成功 ${report.report.overall.computed} 期，已核对 ${report.report.overall.settled} 期`,report.report.overall.computed);return {overall:report.report.overall,simulations};}
 export async function combinationState(selectedId?:string,selectedIssue?:string){
@@ -155,10 +156,12 @@ export async function combinationState(selectedId?:string,selectedIssue?:string)
  const selected=selectedId?values.find(p=>p.id===selectedId):null,resultRows=selected?await list("SELECT value FROM settings WHERE key LIKE ? ORDER BY json_extract(value,'$.createdAt') DESC LIMIT 20",'combinationResult:'+selected.id+':%'):[];
  const report=selected?await periodReport(selected,(await list("SELECT value FROM settings WHERE key LIKE ?",'combinationResult:'+selected.id+':%')).map(r=>JSON.parse(r.value))):null;
  const selectedRuntime=selected?runtimes.get(selected.id):null,lastStored=selectedRuntime?.lastResultId?await setting(selectedRuntime.lastResultId,null):null,activeHash=selected?await hash(await combinationAlgorithm(selected)):null,currentResult=lastStored?.algorithmHash===activeHash?(lastStored.drawn?report?.periods.find((r:any)=>r.issue===lastStored.issue)||lastStored:lastStored):report?.periods[0]||null;
+ const included=new Set(report?.periods.map((r:any)=>r.issue)||[]),closed=report?.historyScope.active?new Set((await list('SELECT issue FROM draws WHERE year=?',selected.year)).map(r=>r.issue)):new Set(),outside=(r:any)=>!!report?.historyScope.active&&!included.has(r?.issue)&&(r?.historical||r?.drawn||closed.has(r?.issue));
+ const visibleCurrent=outside(currentResult)?report?.periods[0]||null:currentResult;
  const periodResult=selectedIssue?report?.periods.find((r:any)=>r.issue===String(Number(selectedIssue)).padStart(3,'0'))||null:null;
  const compactReport=report?{...report,periods:report.periods.map((r:any)=>({id:r.id,year:r.year,issue:r.issue,status:r.status,total:r.total,numbers:r.numbers,createdAt:r.createdAt,backtest:r.backtest,historical:r.historical,settlement:r.settlement,snapshotCount:r.snapshotCount,errors:r.errors}))}:null;
  const decorated=[];for(const plan of values){const runtime=runtimes.get(plan.id)||{},last=runtime.lastResultId?await setting(runtime.lastResultId,null):null;decorated.push({...plan,runtime,lastResult:last?{id:last.id,issue:last.issue,year:last.year,status:last.status,total:last.total,numbers:last.numbers,createdAt:last.createdAt,errors:last.errors}:null});}
- return {report:compactReport,periodResult,currentResult,plans:decorated,sources,customMaterials:await customMaterialSummaries(),profiles,results:resultRows.map(r=>JSON.parse(r.value)).filter(r=>r.algorithmHash===activeHash),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
+ return {report:compactReport,periodResult,currentResult:visibleCurrent,plans:decorated,sources,customMaterials:await customMaterialSummaries(),profiles,results:resultRows.map(r=>JSON.parse(r.value)).filter(r=>r.algorithmHash===activeHash&&!outside(r)),robotConfigured:!!(await setting('wecomPush')).webhook,expectedPeriods:Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.date>=beijingDate()).slice(-10)};
 }
 async function resultToSend(plan:any,selectedId?:string,manual=false){
  let result=selectedId?await setting(selectedId,null):null;
