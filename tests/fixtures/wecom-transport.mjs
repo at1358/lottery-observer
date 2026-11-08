@@ -1,12 +1,14 @@
 // Test runner preload. No production code path or live robot is involved.
 import {appendFileSync,readFileSync} from 'node:fs';
 import {publicLoader,publicBridge,publicPortal,publicLine,publicColumn,entryToken} from './public-entry.mjs';
+import {hostnameFormResponse} from './hostname-form-entry.mjs';
 const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
 const RealDate=Date;
 if(process.env.QA_CLOCK_FILE){const now=()=>{try{const text=readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim();if(text.startsWith('{')){const clock=JSON.parse(text),base=RealDate.parse(clock.base),started=Number(clock.startedAt);if(Number.isFinite(base)&&Number.isFinite(started))return base+RealDate.now()-started;}const value=RealDate.parse(text);return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ const hostnameFixture=hostnameFormResponse(url,options);if(hostnameFixture)return hostnameFixture;
  if(url.hostname.endsWith('.qa-published.example')){const pages=JSON.parse(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/published-pages.json'),'utf8'));if(!(url.href in pages))throw Error('Unannounced published document: '+url.href);return new Response(pages[url.href],{headers:{'Content-Type':'text/html; charset=utf-8'}});}
  if(url.hostname==='qa-scope-source.example')return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+(url.pathname==='/a'?'/history-scope-a.html':'/history-scope-b.html'))),{headers:{'Content-Type':'text/html; charset=utf-8'}});
  if(url.hostname==='qa-baofu.example')return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+'/baofu-column.html')),{headers:{'Content-Type':'text/html; charset=utf-8'}});
