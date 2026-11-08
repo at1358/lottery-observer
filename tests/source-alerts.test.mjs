@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {validateSourceAlert,alertTerms,evaluateSourceAlert,sourceAlertMessage} from '../lib/source-alerts.mjs';
+import {validateSourceAlert,alertTerms,evaluateSourceAlert,sourceAlertMessage,sourceAlertSchedule} from '../lib/source-alerts.mjs';
 const at=Date.parse('2026-11-08T15:00:00+08:00'),source={id:'s',name:'全年无错【绝杀一行】',kind:'杀行',year:2026},period={year:2026,issue:'312',date:'2026-11-08'},p=(issue,values,extra={})=>({source_id:'s',year:2026,issue,kind:'杀行',raw:issue+'期:绝杀一行【'+values.join('')+'行】开？00准',parsed:{valid:true,values,warnings:[]},...extra}),draw={year:2026,issue:'311',number:17,element:'金',draw_date:'2026-11-07'},context={sources:[source],predictions:[p('311',['水']),p('312',['水'])],draws:[draw],expected:{'2026-312':period},failures:[],rules:{}},rule={...validateSourceAlert({name:'水行提醒',sourceId:'s',trigger:'content',values:'水行',message:'出现水行注意',enabled:true},source),id:'r'};
 test('parsed value conditions match the prediction, not reference footers or drawing annotations',()=>{
  assert.equal(evaluateSourceAlert(rule,context,at).eligible,true);const other={...context,predictions:[p('312',['金'],{raw:'312期杀一行【金行】\n附表：水行：01 02 03'})]};assert.equal(evaluateSourceAlert(rule,other,at).eligible,false);assert.equal(evaluateSourceAlert({...rule,matchMode:'text'},other,at).eligible,true);
@@ -7,8 +7,20 @@ test('parsed value conditions match the prediction, not reference footers or dra
  const all={...rule,values:'水行、金行',matchLogic:'all'};assert.equal(evaluateSourceAlert(all,context,at).eligible,false);assert.equal(evaluateSourceAlert({...all,matchLogic:'any'},context,at).eligible,true);
 });
 test('only trusted current undrawn periods with complete, non-failed records are eligible',()=>{
- for(const change of [{expected:{}},{draws:[draw,{year:2026,issue:'312',number:2}]},{predictions:[p('311',['水'])]},{predictions:[p('312',['水'],{parsed:{valid:false,values:['水'],warnings:['不完整']}})]},{failures:[{source_id:'s',year:2026,issue:'312',status:'failed'}]},{sources:[{...source,deleted_batch:'deleted'}]}])assert.equal(evaluateSourceAlert(rule,{...context,...change},at).eligible,false);
- assert.equal(evaluateSourceAlert(rule,context,Date.parse('2026-11-08T21:35:00+08:00')).eligible,false);assert.equal(evaluateSourceAlert(rule,{...context,expected:{future:{...period,date:'2026-11-09'}}},at).eligible,false);
+ for(const change of [{expected:{},draws:[]},{draws:[draw,{year:2026,issue:'312',number:2}]},{predictions:[p('311',['水'])]},{predictions:[p('312',['水'],{parsed:{valid:false,values:['水'],warnings:['不完整']}})]},{failures:[{source_id:'s',year:2026,issue:'312',status:'failed'}]},{sources:[{...source,deleted_batch:'deleted'}]}])assert.equal(evaluateSourceAlert(rule,{...context,...change},at).eligible,false);
+ assert.equal(evaluateSourceAlert(rule,context,Date.parse('2026-11-08T21:35:00+08:00')).eligible,false);assert.equal(evaluateSourceAlert(rule,{...context,draws:[],expected:{future:{...period,date:'2026-11-09'}}},at).eligible,false);
+});
+test('a dated actual draw confirms its immediate successor when the pending announcement is missing',()=>{
+ const result=evaluateSourceAlert(rule,{...context,expected:{}},at);assert.equal(result.eligible,true);assert.equal(result.period.issue,'312');assert.match(result.period.basis,/实际开奖/);
+ for(const previous of [{...draw,draw_date:'2026-11-06'},{...draw,draw_date:null},{...draw,issue:'309'},{...draw,year:2025},{...draw,drawn_at:'2026-11-09T21:38:00+08:00'}])assert.equal(evaluateSourceAlert(rule,{...context,expected:{},draws:[previous]},at).eligible,false);
+ assert.equal(evaluateSourceAlert(rule,{...context,expected:{},draws:[{...draw,issue:'312',draw_date:'2026-11-08'}]},at).eligible,false);
+});
+test('each daily reminder starts at the next configured Beijing time, with an explicit manual override',()=>{
+ const daily={...rule,sendMode:'daily',sendTime:'10:30',scheduleChangedAt:'2026-11-08T09:00:00+08:00'},atTime=time=>Date.parse('2026-11-08T'+time+':00+08:00');
+ assert.equal(sourceAlertSchedule(daily,atTime('10:29')).due,false);assert.equal(sourceAlertSchedule(daily,atTime('10:30')).due,true);assert.equal(sourceAlertSchedule(daily,at).due,true);assert.equal(sourceAlertSchedule({...daily,sendTime:'18:30'},at).due,false);
+ const newlySaved={...daily,scheduleChangedAt:'2026-11-08T17:00:00+08:00'},waiting=sourceAlertSchedule(newlySaved,atTime('17:01'));assert.equal(waiting.due,false);assert.equal(waiting.nextStart,'2026-11-09T02:30:00.000Z');assert.equal(sourceAlertSchedule(newlySaved,Date.parse(waiting.nextStart)).due,true);assert.equal(sourceAlertSchedule(newlySaved,atTime('17:01'),true).due,true);
+ assert.equal(sourceAlertSchedule({...daily,scheduleChangedAt:null},at).due,false);assert.equal(sourceAlertSchedule(rule,at).due,true);
+ assert.throws(()=>validateSourceAlert({...rule,sendMode:'daily',sendTime:'21:35'},source),/早于截止/);assert.throws(()=>validateSourceAlert({...rule,sendTime:'25:00'},source));assert.equal(validateSourceAlert({...rule,sendMode:'daily',sendTime:'10:30'},source).sendTime,'10:30');
 });
 test('previous-win reminders use actual independent evaluation and the immediate prior period',()=>{
  const r={...rule,trigger:'previous_win',timing:'collected',message:'上期正确，这期注意'};const checked=evaluateSourceAlert(r,context,at);assert.equal(checked.eligible,true);assert.match(checked.content,/311.*正确/);assert.match(checked.content,/312/);

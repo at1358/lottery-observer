@@ -94,6 +94,7 @@ async function handle(request:Request,context:any){
     if(body.operation==='configureDrawSource'){if(body.value.url)svc.checkUrl(body.value.url);await svc.putSetting('drawSource',body.value);result={saved:true};}
     else if(body.operation==='readStatus'){result=await svc.state(new URLSearchParams(body.query||{}));}
     else if(body.operation==='sourceAlerts'){result=await readSourceAlerts();}
+    else if(body.operation==='configureSourceAlert'){result=await saveSourceAlert(body.value);}
     else if(body.operation==='configureDrawSchedule')result=await svc.saveDrawSchedule(body.value);
     else if(body.operation==='configureSource'){const source=(await svc.state(new URLSearchParams())).sources.find((s:any)=>s.id===body.id);if(!source)throw Error('栏目不存在');result=await svc.saveSource({...source,...body.value,id:source.id,collectNow:body.value.collectNow!==false});}
     else if(body.operation==='combinationHistory')result=await combinationState(body.id);
