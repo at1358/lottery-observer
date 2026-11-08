@@ -178,6 +178,12 @@ export async function ingest(source:any,rows:any[],historical=false){
  }
  await batches(commands);for(const observation of observations){const result=await recordRecommendationObservation(observation.id,observation.raw,observation.kind,observation.parsed,stamp);if(result.changed)changed++;}return {inserted,changed};
 }
+export async function crawlBatchSource(input:any){
+ const [source]=await list('SELECT id,url FROM sources WHERE id=? AND deleted_batch IS NULL',input.id);
+ if(!source)throw Error('找不到该来源');
+ if(!source.url)throw Error('该来源尚未配置网址，请先设置资料网址');
+ return crawl(source.id,undefined,{preserveSchedule:true});
+}
 export async function crawl(sourceId:string,text?:string,options:any={}){
  const [s]=await list('SELECT * FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId);if(!s)throw Error('找不到该来源');
  try{
@@ -188,11 +194,11 @@ export async function crawl(sourceId:string,text?:string,options:any={}){
   if(!text)await storeSnapshot(s.id,result.html);
   if(options.requiredIssue){const [required]=await list('SELECT parsed FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(required.parsed):null;}catch{}if(!parsed?.valid)throw Error(`${s.name}：第 ${options.requiredIssue} 期资料尚未采集完整，60分钟后重试`);}
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
-  await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=?,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?s.next_run:nextSourceCollection(s,defaults),s.id);
+  await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=CASE WHEN ? THEN next_run ELSE ? END,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?1:0,options.preserveSchedule?null:nextSourceCollection(s,defaults),s.id);
   if(result.navigation?.length)await putSetting('sourceNavigation:'+s.id,{resolvedAt:now(),contentUrl:result.url,steps:result.navigation});
   if(result.relocated)await log('正文自动定位','success',`${s.name}：已确认同一栏目并自动更新正文位置`,1,s.id);
   await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更${result.entryFallback?'；固定入口暂不可用，已使用上次核验的同栏目正文':''}`,counts.inserted,s.id);return counts;
- }catch(e:any){const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);await run('UPDATE sources SET last_run=?,next_run=?,error=? WHERE id=?',now(),nextSourceCollection(s,defaults,true),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
+ }catch(e:any){const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);await run('UPDATE sources SET last_run=?,next_run=CASE WHEN ? THEN next_run ELSE ? END,error=? WHERE id=?',now(),options.preserveSchedule?1:0,options.preserveSchedule?null:nextSourceCollection(s,defaults,true),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
 }
 export async function saveDraw(input:any,provenance='手动录入',allowUnknownTime=false,deferVerification=false){
  const d=validateDraw(input,allowUnknownTime);const drawnAt=d.drawnAt?new Date(d.drawnAt).toISOString():null;

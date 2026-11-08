@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {writeFileSync} from 'node:fs';
+import path from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
+import {collectSourceBatch} from '../lib/source-crawl-batch.mjs';
+const base=process.env.QA_BASE_URL;if(!/^http:\/\/127\.0\.0\.1:5\d{3}$/.test(base||''))throw Error('Isolated QA required');let cookie='';
+async function api(route,data,status=200){const response=await fetch(base+'/api/'+route,{headers:{cookie,'Content-Type':'application/json'},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})}),value=await response.json();assert.equal(response.status,status,route+':'+JSON.stringify(value));if(response.headers.get('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0];if(value.error&&status===200)throw Error(value.error);return value;}
+await api('auth/login',{username:'qa-admin',password:'Local-only-admin-Password-9276'});
+const file=(a,text)=>writeFileSync(path.join(process.env.QA_DATA_DIR,'history-scope-'+a+'.html'),text),body=name=>'<section><h2>'+name+'</h2><p>311期:绝杀一尾【777尾】开:？00准</p></section>';
+file('a',body('批量测试甲【绝杀一尾】'));file('b',body('批量测试乙【绝杀一尾】'));
+const one=await api('source',{name:'批量测试甲【绝杀一尾】',url:'https://qa-scope-source.example/a',year:2091,kind:'杀尾',sample:'311期:绝杀一尾【777尾】开:？00准',selector:'auto',interval:60,schedule_mode:'daily',daily_time:'19:00',enabled:true,collectNow:false});
+const two=await api('source',{name:'批量测试乙【绝杀一尾】',url:'https://qa-scope-source.example/b',year:2091,kind:'杀尾',sample:'311期:绝杀一尾【777尾】开:？00准',selector:'auto',interval:120,schedule_mode:'interval',enabled:false,collectNow:false});
+const empty=await api('source',{name:'批量测试未配置',url:'',year:2091,kind:'杀尾',selector:'auto',interval:60,enabled:false,collectNow:false});
+const db=new DatabaseSync(path.join(process.env.QA_DATA_DIR,'observer.sqlite')),ids=[one.id,two.id,empty.id],read=()=>db.prepare('SELECT * FROM sources WHERE id IN (?,?,?) ORDER BY id').all(...ids),before=read(),sources=(await api('state')).sources.filter(s=>ids.includes(s.id));
+let result=await collectSourceBatch(sources,id=>api('sources/crawl',{id}));assert.equal(result.success,2);assert.equal(result.skipped,1);assert.equal(result.failed,0);assert.equal(result.inserted,2);
+const fields=['enabled','interval','daily_time','schedule_mode','next_run','url','sample','year'];const preserved=()=>{for(const current of read())for(const field of fields)assert.equal(current[field],before.find(s=>s.id===current.id)[field],field);};preserved();
+const original=db.prepare('SELECT id,raw,first_seen FROM predictions WHERE year=2091 ORDER BY id').all();
+file('a','<h2>无关网页，没有该栏目</h2>');result=await collectSourceBatch(sources,id=>api('sources/crawl',{id}));assert.equal(result.failed,1);assert.equal(result.success,1);assert.equal(result.skipped,1);assert.equal(result.inserted,0);preserved();assert.deepEqual(db.prepare('SELECT id,raw,first_seen FROM predictions WHERE year=2091 ORDER BY id').all(),original);
+await api('sources/crawl',{id:empty.id},400);await api('sources/crawl',{id:'not-a-source'},400);
+await api('auth/login',{username:'qa-operator',password:'Local-only-operator-Password-9276'});await api('sources/crawl',{id:two.id});
+const removed=await api('sources/delete',{ids:[two.id]});await api('sources/crawl',{id:two.id},400);await api('trash/restore',{id:removed.batch});
+await api('auth/login',{username:'qa-viewer',password:'Reset-local-only-password-9276'});await api('sources/crawl',{id:one.id},403);preserved();db.close();
+console.log('PASS: batch uses real crawl APIs, collects enabled/paused sources, skips missing URLs, continues after failure, preserves all schedules and original archives, and enforces operator/viewer/deleted-source access.');
