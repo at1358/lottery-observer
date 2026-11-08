@@ -8,6 +8,7 @@ import {readNumberReference,saveNumberReference} from '../../../lib/reference-se
 import {pushState,savePush,testPush,sendLatestDraw} from '../../../lib/wecom';
 import {combinationState,recalculateCombinationHistory,saveCombination,saveCombinationPush,calculateCombination,previewCombination,pushCombination,scheduledCombinations} from '../../../lib/combination-service';
 import {readSourceDefinitions} from '../../../lib/source-definition-service';
+import {readSourceAlerts,previewSourceAlert,saveSourceAlert,archiveSourceAlert,sendSourceAlert} from '../../../lib/source-alert-service';
 import {readCustomMaterials,saveCustomMaterial,refreshCustomMaterial,saveCustomMaterialSchedule,scheduledCustomMaterials} from '../../../lib/custom-material-service';
 import {readSimulations,saveSimulation,refreshSimulation,saveSimulationSelection,simulationCandidates,scheduledSimulations} from '../../../lib/simulation-service';
 export const dynamic='force-dynamic';
@@ -18,10 +19,11 @@ async function handle(request:Request,context:any){
   // All browser data and mutations additionally require visitor identity.
   const publicAuth=['auth/login','auth/bootstrap','auth/logout'];
   if(['tick','service'].includes(path))await account.authorizeService(request);
-  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup'||(path.startsWith('number-reference')||path.startsWith('wecom/'))&&request.method!=='GET');
+  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup'||(path.startsWith('number-reference')||path.startsWith('wecom/')||path.startsWith('source-alerts/'))&&request.method!=='GET');
   if(request.method==='GET'){
    if(path==='state')return Response.json(await svc.state(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='wecom')return Response.json(await pushState(),{headers:{'Cache-Control':'no-store'}});
+   if(path==='source-alerts')return Response.json(await readSourceAlerts(),{headers:{'Cache-Control':'no-store'}});
    if(path==='combinations')return Response.json(await combinationState(url.searchParams.get('plan')||undefined,url.searchParams.get('issue')||undefined),{headers:{'Cache-Control':'no-store'}});
    if(path==='custom-materials')return Response.json(await readCustomMaterials(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='simulations')return Response.json(await readSimulations(url.searchParams),{headers:{'Cache-Control':'no-store'}});
@@ -64,6 +66,11 @@ async function handle(request:Request,context:any){
    case 'wecom/save':result=await savePush(body);break;
    case 'wecom/test':result=await testPush();break;
    case 'wecom/send':result=await sendLatestDraw(true);break;
+   case 'source-alerts/preview':result=await previewSourceAlert(body);break;
+   case 'source-alerts/save':result=await saveSourceAlert(body);break;
+   case 'source-alerts/delete':result=await archiveSourceAlert(body);break;
+   case 'source-alerts/restore':result=await archiveSourceAlert(body,true);break;
+   case 'source-alerts/send':result=await sendSourceAlert(body);break;
    case 'combinations/delete':result=await deletePlan('combination',body);break;
    case 'simulations/delete':result=await deletePlan('simulation',body);break;
    case 'combinations/save':{const actor=await account.requirePrincipal(true);result=await saveCombination(body,actor.role==='admin');break;}
@@ -86,6 +93,7 @@ async function handle(request:Request,context:any){
    case 'service':{
     if(body.operation==='configureDrawSource'){if(body.value.url)svc.checkUrl(body.value.url);await svc.putSetting('drawSource',body.value);result={saved:true};}
     else if(body.operation==='readStatus'){result=await svc.state(new URLSearchParams(body.query||{}));}
+    else if(body.operation==='sourceAlerts'){result=await readSourceAlerts();}
     else if(body.operation==='configureDrawSchedule')result=await svc.saveDrawSchedule(body.value);
     else if(body.operation==='configureSource'){const source=(await svc.state(new URLSearchParams())).sources.find((s:any)=>s.id===body.id);if(!source)throw Error('栏目不存在');result=await svc.saveSource({...source,...body.value,id:source.id,collectNow:body.value.collectNow!==false});}
     else if(body.operation==='combinationHistory')result=await combinationState(body.id);

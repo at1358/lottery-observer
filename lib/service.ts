@@ -19,6 +19,7 @@ import {customMaterialSummaries,scheduledCustomMaterials} from './custom-materia
 import {scheduledSimulations} from './simulation-service';
 import {collectionWindowOpen,nextSourceCollection,nextCollectionDay} from './collection-retry.mjs';
 import {validateSourceScheduleBatch} from './source-schedules.mjs';
+import {scheduledSourceAlerts} from './source-alert-service';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -307,10 +308,11 @@ export async function tick(){
  const [remaining]=await list('SELECT COUNT(*) AS count FROM sources WHERE deleted_batch IS NULL AND enabled=1 AND url<>\'\' AND (next_run IS NULL OR next_run<=?)',now());
  const combinations=await scheduledCombinations();success+=combinations.calculated+combinations.pushed;failed+=combinations.failed;
  const simulations=await scheduledSimulations();success+=simulations.checked;failed+=simulations.failed;
+ const sourceAlerts=await scheduledSourceAlerts();success+=sourceAlerts.sent;failed+=sourceAlerts.failed;
  const pending=collectionSchedule.enabled===false?0:remaining.count;
  await putSetting('scheduler',{lastRun:now(),success,failed,remaining:pending});
  await log('定时检查',failed?'error':'success',collectionSchedule.enabled===false?'全站自动采集已暂停；开奖同步按原设置运行':`本批检查完成：成功 ${success}，失败 ${failed}，剩余到期栏目 ${pending}`,success);
- return {success,failed,remaining:pending,push:pushResult,combinations,customMaterials,simulations};
+ return {success,failed,remaining:pending,push:pushResult,combinations,customMaterials,simulations,sourceAlerts};
 }
 export async function recheckResults(input:any={}){
  const query=new URLSearchParams();let name='全部采集资料';
