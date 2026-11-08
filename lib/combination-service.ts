@@ -8,7 +8,7 @@ import {combinationPeriodReport} from './combination-results.mjs';
 import {collectionWindowOpen,nextRecoveryAt} from './collection-retry.mjs';
 import {customCombinationData,customMaterialSummaries,refreshCustomMaterial} from './custom-material-service';
 import {materialRuleKey} from './custom-material.mjs';
-import {collectedSourceIds,selectCombinationHistory} from './combination-periods.mjs';
+import {collectedSourceIds,selectCombinationHistory,currentCombinationPeriod} from './combination-periods.mjs';
 function refuse(code:string,message:string):never{throw Object.assign(Error(message),{code});}
 const stamp=()=>new Date().toISOString(),planKey=(id:string)=>'combinationPlan:'+id,runtimeKey=(id:string)=>'combinationRuntime:'+id;
 async function setting(key:string,fallback:any={}){const [r]=await list('SELECT value FROM settings WHERE key=?',key);return r?JSON.parse(r.value):fallback;}
@@ -63,20 +63,18 @@ async function target(plan:any,input:any={}){
   const ids=sourceIds(plan);
   if(ids.length){const [row]=await list(`SELECT p.year,p.issue FROM predictions p JOIN sources s ON s.id=p.source_id WHERE p.year=? AND p.deleted_batch IS NULL AND s.deleted_batch IS NULL AND p.source_id IN (${ids.map(()=>'?').join(',')}) GROUP BY p.year,p.issue HAVING COUNT(DISTINCT p.source_id)=? ORDER BY p.issue DESC LIMIT 1`,plan.year,...ids,ids.length);if(!row)refuse('NO_PERIOD','所选栏目没有共同期数，请先采集同一期资料');return periodInfo(plan.year,row.issue);}
  }
+ const current=await todayPeriod(plan);if(current.issue&&!current.drawn)return current;
  const expected=await setting('expectedDrawPeriods'),today=beijingDate(),draws=await list('SELECT issue FROM draws WHERE year=?',plan.year),closed=new Set(draws.map(d=>d.issue));
  const candidates=Object.values(expected).filter((p:any)=>p.year===plan.year&&p.date>=today&&!closed.has(p.issue)).sort((a:any,b:any)=>a.date.localeCompare(b.date)||Number(a.issue)-Number(b.issue)) as any[];
  if(!candidates.length)refuse('NO_PERIOD','暂无可信开奖源公布的待开奖期数；请同步开奖或手动指定期数');return periodInfo(plan.year,candidates[0].issue);
 }
-async function periodInfo(year:number,issue:string){const [draw]=await list('SELECT draw_date,drawn_at FROM draws WHERE year=? AND issue=?',year,issue),expected=await setting('expectedDrawPeriods'),date=draw?.draw_date||expected[year+'-'+issue]?.date||(draw?.drawn_at?beijingDate(Date.parse(draw.drawn_at)):null);return {year,issue,date,drawn:!!draw};}
+async function periodInfo(year:number,issue:string){const [draw]=await list('SELECT draw_date,drawn_at FROM draws WHERE year=? AND issue=?',year,issue),expected=await setting('expectedDrawPeriods'),current=currentCombinationPeriod(year,await list('SELECT year,issue,draw_date,drawn_at FROM draws'),expected),date=draw?.draw_date||expected[year+'-'+issue]?.date||(draw?.drawn_at?beijingDate(Date.parse(draw.drawn_at)):null)||(!draw&&current.issue===issue?current.date:null);return {year,issue,date,drawn:!!draw};}
 async function todayPeriod(plan:any){
  const today=beijingDate();if(plan.targetMode==='fixed'){const fixed=await periodInfo(plan.year,plan.fixedIssue);if(fixed.date===today)return fixed;}
- const closed=new Set((await list('SELECT issue FROM draws WHERE year=?',plan.year)).map(d=>d.issue)),expected=Object.values(await setting('expectedDrawPeriods')).filter((p:any)=>p.year===plan.year&&p.date===today).sort((a:any,b:any)=>Number(closed.has(a.issue))-Number(closed.has(b.issue))||Number(a.issue)-Number(b.issue)) as any[];
- if(expected[0])return periodInfo(plan.year,expected[0].issue);
- const [draw]=await list('SELECT issue FROM draws WHERE year=? AND draw_date=? ORDER BY issue DESC LIMIT 1',plan.year,today);if(draw)return periodInfo(plan.year,draw.issue);
- return {year:plan.year,issue:null,date:today,drawn:false};
+ return currentCombinationPeriod(plan.year,await list('SELECT year,issue,draw_date,drawn_at FROM draws'),await setting('expectedDrawPeriods'));
 }
 async function saveResult(plan:any,period:any,computed:any,collection:any[],persist=true){
- const algorithmHash=await hash(await combinationAlgorithm(plan)),fingerprint=await hash({algorithm:algorithmHash,year:period.year,issue:period.issue,trace:computed.trace,errors:computed.errors});
+ const algorithmHash=await hash(await combinationAlgorithm(plan)),fingerprint=await hash({algorithm:algorithmHash,year:period.year,issue:period.issue,periodDate:period.date,trace:computed.trace,errors:computed.errors});
  const key=(period.issue?'combinationResult:':'combinationAttempt:')+plan.id+':'+period.year+':'+(period.issue||period.date)+':'+fingerprint;
  const result={...computed,collection,id:key,planId:plan.id,planName:plan.name,planRevision:plan.revision||null,algorithmHash,fingerprint,periodDate:period.date,drawn:period.drawn,historical:period.drawn||!!computed.historical,createdAt:stamp()};
  if(!persist)return {...result,preview:true};
@@ -186,6 +184,11 @@ async function resultToSend(plan:any,selectedId?:string,manual=false){
  return result;
 }
 function recoveryDue(runtime:any){return !runtime.recoveryActive||runtime.recoveryDate!==beijingDate()||!!runtime.nextRecoveryAt&&runtime.nextRecoveryAt<=stamp();}
+async function resolvedPeriodDate(plan:any,runtime:any){
+ if(!runtime.recoveryActive||runtime.recoveryDate!==beijingDate()||!runtime.lastResultId)return false;
+ const last=await setting(runtime.lastResultId,null);if(!last||last.periodDate===beijingDate()&&last.issue)return false;
+ const current=await todayPeriod(plan);return !!current.issue&&!current.drawn&&(!last.issue||last.issue===current.issue);
+}
 function canRecover(plan:any){return collectionWindowOpen()&&new Date(Date.now()+8*3600000).toISOString().slice(11,16)<plan.cutoff;}
 export async function pushCombination(input:any,manual=true){
  const plan=await findPlan(input.id);let result:any;
@@ -195,7 +198,7 @@ export async function pushCombination(input:any,manual=true){
  // Before reporting missing data, first collect the missing columns and retry.
  // Existing successful/current snapshots and explicit historical selections are
  // kept intact; failed attempts wait a full hour before the next automatic try.
- if((!input.resultId||selected?.status==='blocked'&&selected.periodDate===beijingDate())&&(!last||last.status!=='complete'||last.periodDate!==beijingDate()||changedCustomRule)&&canRecover(plan)&&(recoveryDue(runtime)||changedCustomRule)){
+ if((!input.resultId||selected?.status==='blocked'&&(selected.periodDate===beijingDate()||selected.id===last?.id&&await resolvedPeriodDate(plan,runtime)))&&(!last||last.status!=='complete'||last.periodDate!==beijingDate()||changedCustomRule)&&canRecover(plan)&&(recoveryDue(runtime)||changedCustomRule||await resolvedPeriodDate(plan,runtime))){
   await execute(plan,{onlyMissing:true,automatic:!manual});input={...input,resultId:undefined};
  }
  try{result=await resultToSend(plan,input.resultId,manual);}catch(e:any){
@@ -223,7 +226,7 @@ export async function pushCombination(input:any,manual=true){
 export async function scheduledCombinations(){
  const values=(await plans()).filter(p=>p.calculation.enabled||p.push.enabled),localTime=new Date(Date.now()+8*3600000).toISOString().slice(11,16);let calculated=0,pushed=0,blocked=0,failed=0;
  for(const plan of values.slice(0,50)){
-  const runtime=await setting(runtimeKey(plan.id)),recovering=runtime.recoveryActive&&runtime.recoveryDate===beijingDate(),retryDue=recovering&&!!runtime.nextRecoveryAt&&runtime.nextRecoveryAt<=stamp(),due=plan.calculation.enabled&&(!runtime.nextCalc||runtime.nextCalc<=stamp())&&(!recovering||retryDue),pushDue=plan.push.enabled&&localTime>=plan.push.time;
+  const runtime=await setting(runtimeKey(plan.id)),recovering=runtime.recoveryActive&&runtime.recoveryDate===beijingDate(),retryDue=recovering&&(!!runtime.nextRecoveryAt&&runtime.nextRecoveryAt<=stamp()||await resolvedPeriodDate(plan,runtime)),due=plan.calculation.enabled&&(!runtime.nextCalc||runtime.nextCalc<=stamp())&&(!recovering||retryDue),pushDue=plan.push.enabled&&localTime>=plan.push.time;
   if(!due&&!pushDue&&!retryDue)continue;
   const key='combinationLease:'+plan.id,at=Date.now(),lease=await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(settings.value AS INTEGER)<=?',key,String(at+10*60000),at);if(!lease.meta.changes)continue;
   try{
