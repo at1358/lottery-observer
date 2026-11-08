@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveNavigationSource} from '../lib/source-resolver.mjs';
+import {clientUrl,clientName,clientRaw,clientScript} from './fixtures/client-document.mjs';
 const name='008111.com【绝杀一尾】',source={url:'https://portal.example/',content_url:'https://old-line.example/tail.html',entry_mode:'navigation',entry_keyword:name,name},options={name,kind:'杀尾',sample:'289期:绝杀一尾【555尾】开:蛇38准',identity:name,selector:'auto'},body=(title=name)=>'<section><h2>'+title+'</h2><p>289期:绝杀一尾【555尾】开:蛇38准</p><p>311期:绝杀一尾【777尾】开:？00准</p></section>';
 test('a temporarily broken fixed entry can use only its previously verified same-column body',async()=>{
  const calls=[];const result=await resolveNavigationSource(source,options,async url=>({url,text:'入口暂未提供栏目'}),async url=>{calls.push(url);return {url,text:body()};});assert.equal(result.entryFallback,true);assert.deepEqual(calls,[source.content_url]);assert.equal(result.identity,name);assert.match(result.navigation[1].label,/上次核验/);assert.match(result.text,/311期/);
@@ -17,4 +18,10 @@ test('redirect-only mode and unsafe target errors do not use an old body to hide
  await assert.rejects(resolveNavigationSource({...source,entry_mode:'redirect'},options,async url=>({url,text:'无栏目'}),async()=>{calls++;return {url:source.content_url,text:body()};}));
  await assert.rejects(resolveNavigationSource(source,options,async()=>{throw Object.assign(Error('禁止内部地址'),{code:'UNSAFE_SOURCE_URL'});},async()=>{calls++;return {url:source.content_url,text:body()};}),/禁止内部地址/);
  assert.equal(calls,0);
+});
+test('redirect verification can use a verified public data document only, with exact retained column identity',async()=>{
+ const source={url:'http://901.com/',name:clientName,entry_mode:'redirect',content_url:clientUrl},options={kind:'24码',name:clientName,sample:clientRaw,identity:clientName},blocked=async url=>({url,text:'<title>安全验证</title>请拖动滑块'});
+ const result=await resolveNavigationSource(source,options,blocked,async url=>({url,text:clientScript()}));assert.equal(result.entryFallback,true);assert.equal(result.identity,clientName);
+ for(const [s,o] of [[{...source,content_url:'https://other.example/a.js'},options],[source,{...options,identity:''}],[source,{...options,identity:'其他作者【经典24码】'}]])await assert.rejects(resolveNavigationSource(s,o,blocked,async url=>({url,text:clientScript()})));
+ await assert.rejects(resolveNavigationSource(source,options,async()=>{throw Object.assign(Error('unsafe'),{code:'UNSAFE_SOURCE_URL'});},async url=>({url,text:clientScript()})),/unsafe/);
 });

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import {evaluate, statistics, parsePrediction, splitPeriods, inferKind, validateDraw, parseMacauSocket, KINDS} from './domain.mjs';
 import {resolveModule} from './content-resolver.mjs';
 import {resolveNavigationSource} from './source-resolver.mjs';
+import {decodeClientResponse} from './client-document.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -62,7 +63,7 @@ async function download(url:string,strictOrigin=false,referer?:string,exposeRedi
   const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
   const head=new TextDecoder().decode(bytes.slice(0,2048));const charset=(response.headers.get('content-type')?.match(/charset=["']?([^;\s"']+)/i)||head.match(/charset=["']?([^\s"'>;]+)/i))?.[1]||'utf-8';
   let text:string;try{text=new TextDecoder(charset).decode(bytes);}catch{text=new TextDecoder().decode(bytes);}
-  return {text,url:u.href};
+  return {text:decodeClientResponse(text,u.href,response.headers.get('iv')),url:u.href};
  }
  throw Error('网站跳转次数过多');
 }

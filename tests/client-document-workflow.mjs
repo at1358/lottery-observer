@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import path from 'node:path';
+import {clientUrl,clientName,clientRaw,baoteUrl,clientNumbers} from './fixtures/client-document.mjs';
+const base=process.env.QA_BASE_URL;if(!/^http:\/\/127\.0\.0\.1:5\d{3}$/.test(base||''))throw Error('Isolated QA required');let cookie='';
+async function api(route,data){const r=await fetch(base+'/api/'+route,{headers:{cookie,'Content-Type':'application/json'},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})}),v=await r.json();assert.equal(r.status,200,route+':'+JSON.stringify(v));if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return v;}
+await api('auth/login',{username:'qa-admin',password:'Local-only-admin-Password-9276'});const db=new DatabaseSync(path.join(process.env.QA_DATA_DIR,'observer.sqlite'));
+for(const [url,name,sample,count] of [[clientUrl,clientName,clientRaw,2],[baoteUrl,'1903兔年【24码爆特】精彩好料','313期:【24码爆特】开【？00】中\n'+clientNumbers.slice(0,12).join(' ')+'\n'+clientNumbers.slice(12).join(' '),2]]){
+ const input={name,year:2026,kind:'自动识别',url,entry_mode:'direct',selector:'auto',sample,interval:60,schedule_mode:'daily',daily_time:'15:00',cutoff_time:'21:35',enabled:false,collectNow:true};
+ const result=await api('source',input);assert.equal(result.warning,null);assert.equal(result.inserted,count);const old=db.prepare('SELECT id,raw,first_seen FROM predictions WHERE source_id=? ORDER BY issue').all(result.id),source=db.prepare('SELECT * FROM sources WHERE id=?').get(result.id);assert.ok(source.locator_identity);const complete=db.prepare("SELECT issue,raw,parsed FROM predictions WHERE source_id=? AND json_extract(parsed,'$.valid')=1 ORDER BY issue").all(result.id);assert.equal(complete.length,url===clientUrl?1:2);assert.ok(complete.every(r=>r.raw.split('\n').length>=3));assert.ok(complete.every(r=>JSON.parse(r.parsed).values.length===24));
+ // Model the existing fixed-entry source with its already verified public body.
+ db.prepare('UPDATE sources SET url=?,entry_mode=? WHERE id=?').run('https://entry.qa-client.example/','redirect',result.id);
+ assert.equal((await api('crawl',{id:result.id})).inserted,0);assert.deepEqual(db.prepare('SELECT id,raw,first_seen FROM predictions WHERE source_id=? ORDER BY issue').all(result.id),old);
+ const current=db.prepare('SELECT * FROM sources WHERE id=?').get(result.id);assert.equal(current.error,null);assert.equal(current.url,'https://entry.qa-client.example/');assert.equal(current.entry_mode,'redirect');assert.equal(current.content_url,url);assert.equal(current.daily_time,'15:00');assert.equal(current.sample,sample);
+}
+db.close();console.log('PASS: public literal and AES widget documents work through preview/save/capture; retained root, schedule, samples, exact multiline numbers, unchanged archives, and captcha fallback only to the verified same column. No external requests.');
