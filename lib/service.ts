@@ -79,7 +79,8 @@ export async function previewSource(s:any){
  const sample=s.text||s.sample||'';
  const kindHint=/半头/.test(s.name+' '+sample)&&['自动识别','杀头','头数'].includes(s.kind)?inferKind(s.name+' '+sample):s.kind;
  let extracted:any,lastError:any;
- const options={selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',identityAliases:s.entry_mode==='navigation'&&s.entry_keyword?[s.entry_keyword]:[],autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0};
+ let contentPath='';try{if(s.content_url)contentPath=new URL(s.content_url).pathname;}catch{}
+ const options={selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',identityAliases:s.entry_mode==='navigation'&&s.entry_keyword?[s.entry_keyword]:[],contentPath,autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0};
  if(s.url&&['navigation','redirect'].includes(s.entry_mode))extracted=await resolveNavigationSource(s,options,(url:string,referer?:string,transport?:{method:string,body:string})=>download(url,true,referer,true,transport),sourceDownload);
  const urls=s.url?[...new Set([s.content_url,s.url].filter(Boolean))]:[''];
  for(const url of extracted?[]:urls){try{const data=url?await sourceDownload(url):{text:String(s.text||''),url:'https://text-preview.invalid/'};extracted=await resolveModule(data,{selector:s.selector||'auto',sample,name:s.name,kind:kindHint,identity:s.locator_identity||'',autoRelocate:s.auto_relocate!==false&&s.auto_relocate!==0},sourceDownload);if(urls[0]!==url)extracted.relocated=true;break;}catch(error){lastError=error;}}
