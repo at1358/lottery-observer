@@ -22,6 +22,7 @@ export const predictions = sqliteTable('predictions', {
  historical: integer('historical').notNull().default(0), changed: integer('changed').notNull().default(0),
  deletedBatch: text('deleted_batch'),
  latestRaw:text('latest_raw'),latestParsed:text('latest_parsed'),latestKind:text('latest_kind'),latestVersion:integer('latest_version').notNull().default(0),retroactive:integer('retroactive').notNull().default(0),firstVerdict:text('first_verdict'),
+ firstCompleteRaw:text('first_complete_raw'),firstCompleteParsed:text('first_complete_parsed'),firstCompleteKind:text('first_complete_kind'),firstCompleteSeenAt:text('first_complete_seen_at'),
 }, t => [uniqueIndex('prediction_key').on(t.sourceId,t.year,t.issue)]);
 export const draws = sqliteTable('draws', {
  id: text('id').primaryKey(), year: integer('year').notNull(), issue: text('issue').notNull(),

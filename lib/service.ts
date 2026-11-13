@@ -3,6 +3,7 @@ import {evaluate, statistics, parsePrediction, splitPeriods, inferKind, validate
 import {resolveModule} from './content-resolver.mjs';
 import {resolveNavigationSource} from './source-resolver.mjs';
 import {decodeClientResponse} from './client-document.mjs';
+import {effectivePrediction} from './complete-prediction.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -195,7 +196,7 @@ export async function crawl(sourceId:string,text?:string,options:any={}){
   s.kind=result.kind;
   const counts=await ingest(s,result.rows,!!text);
   if(!text)await storeSnapshot(s.id,result.html);
-  if(options.requiredIssue){const [required]=await list('SELECT parsed FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(required.parsed):null;}catch{}if(!parsed?.valid)throw Error(`${s.name}：第 ${options.requiredIssue} 期资料尚未采集完整，60分钟后重试`);}
+  if(options.requiredIssue){const [required]=await list('SELECT * FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(effectivePrediction(required).parsed):null;}catch{}if(!parsed?.valid)throw Error(`${s.name}：第 ${options.requiredIssue} 期资料尚未采集完整，60分钟后重试`);}
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
   await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=CASE WHEN ? THEN next_run ELSE ? END,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?1:0,options.preserveSchedule?null:nextSourceCollection(s,defaults),s.id);
   if(result.navigation?.length)await putSetting('sourceNavigation:'+s.id,{resolvedAt:now(),contentUrl:result.url,steps:result.navigation});
@@ -333,7 +334,7 @@ export async function state(query:URLSearchParams){
  const dm=new Map(draws.map(d=>[d.year+'-'+d.issue,d]));const sm=new Map(sources.map(s=>[s.id,s]));
  const failures=new Map(periods.map(p=>[p.source_id+'-'+p.year+'-'+p.issue,p]));
  const effectiveRules=new Map([...new Set(ps.map(p=>p.year))].map(year=>[year,rulesWithReference(rules.years?.[year]||{},annualReferences.get(year))]));
- const all=ps.map(p=>{const draw=dm.get(p.year+'-'+p.issue),failure=failures.get(p.source_id+'-'+p.year+'-'+p.issue);return {...p,name:sm.get(p.source_id)?.name||'',parsed:JSON.parse(p.parsed),firstResult:p.first_verdict?JSON.parse(p.first_verdict):null,draw,collectionFailure:failure||null,backtest:!!p.historical||!!draw&&(!draw.drawn_at||p.first_seen>=draw.drawn_at),verdict:failure?{status:'collection_failed',reason:failure.reason}:evaluate(p,draw,effectiveRules.get(p.year)||{})};});
+ const all=ps.map(initial=>{const p=effectivePrediction(initial),draw=dm.get(p.year+'-'+p.issue),failure=failures.get(p.source_id+'-'+p.year+'-'+p.issue);return {...p,name:sm.get(p.source_id)?.name||'',parsed:JSON.parse(p.parsed),firstResult:p.first_verdict?JSON.parse(p.first_verdict):null,draw,collectionFailure:failure||null,backtest:!!p.historical||!!draw&&(!draw.drawn_at||p.first_seen>=draw.drawn_at),verdict:failure?{status:'collection_failed',reason:failure.reason}:evaluate(p,draw,effectiveRules.get(p.year)||{})};});
  const existing=new Set(ps.map(p=>p.source_id+'-'+p.year+'-'+p.issue));
  for(const failure of periods){if(existing.has(failure.source_id+'-'+failure.year+'-'+failure.issue))continue;const source=sm.get(failure.source_id);if(!source)continue;all.push({...failure,id:'failed:'+failure.id,name:source.name,kind:source.kind,raw:'',parsed:{valid:false,values:[],warnings:[]},first_seen:failure.finalized_at,last_seen:failure.finalized_at,historical:0,changed:0,draw:dm.get(failure.year+'-'+failure.issue),backtest:false,synthetic:true,collectionFailure:failure,verdict:{status:'collection_failed',reason:failure.reason}});}
  all.sort((a,b)=>b.year-a.year||Number(b.issue)-Number(a.issue));

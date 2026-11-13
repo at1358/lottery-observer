@@ -4,6 +4,7 @@ import {rulesWithReference} from './number-reference.mjs';
 import {interpretation,compareRecommendations,afterDrawStatus} from './recommendation-history.mjs';
 import {repairKingdomInterpretations} from './kingdom-repair-service';
 import {repairGroupedNumberInterpretations} from './grouped-number-repair-service';
+import {firstCompleteObservation} from './complete-prediction.mjs';
 const read=(value:any,fallback:any=null)=>{try{return typeof value==='string'?JSON.parse(value):value||fallback;}catch{return fallback;}};
 async function context(year:number,issue:string){
  const [draws,settings]=await Promise.all([list('SELECT * FROM draws WHERE year=? AND issue=?',year,issue),list("SELECT key,value FROM settings WHERE key IN ('rules',?)",'numberReference:'+year)]);
@@ -14,6 +15,16 @@ function details(row:any,before:any,after:any,kind:string,draw:any,rules:any,at:
  return {before:{kind:row.latest_kind||row.kind,parsed:before,values:before?.values||[]},after:{kind,parsed:after,values:after.values},afterDraw,originalVerdict,verdict,draw:draw?{number:draw.number,zodiac:draw.zodiac,element:draw.element,drawn_at:draw.drawn_at,draw_date:draw.draw_date,provenance:draw.provenance}:null,observedAt:at,reconstructed};
 }
 let legacyWork:Promise<void>|null=null;
+async function saveFirstComplete(row:any,observation?:any){
+ const first=firstCompleteObservation(row,observation);if(!first)return false;
+ const metadata=JSON.stringify({kind:first.kind,values:first.parsed.values,observedAt:first.at,initialSeenAt:row.first_seen});
+ const guard='id=? AND first_complete_seen_at IS NULL AND parsed=? AND last_seen=? AND latest_version=?';
+ const args=[row.id,row.parsed,row.last_seen,row.latest_version||0];
+ const results:any[]=await db().batch([
+  stmt(`INSERT INTO revisions(id,prediction_id,raw,created_at,change_type,metadata) SELECT ?,?,?,?,'audit',? FROM predictions WHERE ${guard}`,crypto.randomUUID(),row.id,'[记录首次完整资料；保留最早占位原文和时间，不把开奖后补齐前移]\n'+metadata,new Date().toISOString(),metadata,...args),
+  stmt(`UPDATE predictions SET first_complete_raw=?,first_complete_parsed=?,first_complete_kind=?,first_complete_seen_at=? WHERE ${guard}`,first.raw,JSON.stringify(first.parsed),first.kind,first.at,...args)
+ ]);return !!results[1].meta.changes;
+}
 export async function ensureRecommendationHistory(){
  if(legacyWork)return legacyWork;
  legacyWork=(async()=>{
@@ -38,11 +49,14 @@ export async function ensureRecommendationHistory(){
   }
   await repairKingdomInterpretations();
   await repairGroupedNumberInterpretations();
+  const incomplete=await list("SELECT * FROM predictions WHERE first_complete_seen_at IS NULL AND json_extract(parsed,'$.valid')=0 AND json_extract(latest_parsed,'$.valid')=1 AND latest_version=0");
+  for(const row of incomplete)await saveFirstComplete(row);
  })().finally(()=>{legacyWork=null;});return legacyWork;
 }
 export async function recordRecommendationObservation(predictionId:string,raw:string,kind:string,parsed:any,at:string){
  for(let attempt=0;attempt<4;attempt++){
   const [row]=await list('SELECT * FROM predictions WHERE id=?',predictionId);if(!row||row.last_seen>at)return {changed:false};
+  if(await saveFirstComplete(row,{raw,kind,parsed,at}))continue;
   const before=read(row.latest_parsed)||read(row.parsed),beforeKind=row.latest_kind||row.kind,comparison=compareRecommendations(before,parsed,beforeKind,kind),version=row.latest_version||0;
   if(!comparison.changed){
    const result=await run('UPDATE predictions SET latest_raw=?,latest_parsed=?,latest_kind=?,last_seen=? WHERE id=? AND latest_version=? AND last_seen<=?',raw,JSON.stringify(parsed.valid?parsed:before),parsed.valid?kind:beforeKind,at,row.id,version,at);

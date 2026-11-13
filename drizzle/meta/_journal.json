@@ -57,6 +57,13 @@
       "when": 1793565967028,
       "tag": "0007_entry_navigation",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794571200000,
+      "tag": "0008_first_complete_prediction",
+      "breakpoints": true
     }
   ]
 }
