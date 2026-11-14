@@ -11,6 +11,10 @@ export async function customMaterialSummaries(){
  const rows=await list("SELECT p.value AS plan,json_extract(r.value,'$.stats') AS stats,json_extract(r.value,'$.lastCheckedAt') AS checked FROM settings p LEFT JOIN settings r ON r.key='customMaterialRows:'||substr(p.key,length('customMaterialPlan:')+1) WHERE p.key LIKE 'customMaterialPlan:%' ORDER BY json_extract(p.value,'$.lag'),json_extract(p.value,'$.year') DESC,json_extract(p.value,'$.createdAt')");
  return rows.map(r=>{const plan=JSON.parse(r.plan),stats=r.stats?JSON.parse(r.stats):null;return {...plan,sourceText:undefined,records:undefined,issueCorrections:undefined,unparsed:undefined,displayName:customMaterialLabel(plan,stats),stats,lastCheckedAt:r.checked||null};});
 }
+export async function customMaterialRankingData(){
+ const rows=await list("SELECT p.value AS plan,r.value AS records FROM settings p LEFT JOIN settings r ON r.key='customMaterialRows:'||substr(p.key,length('customMaterialPlan:')+1) WHERE p.key LIKE 'customMaterialPlan:%'");
+ return rows.map(row=>{const p=JSON.parse(row.plan);return {plan:{id:p.id,name:p.name,type:p.type,year:p.year,lag:p.lag,declaredCount:p.declaredCount},rows:row.records?JSON.parse(row.records).rows:[]};});
+}
 export async function refreshCustomMaterial(id:string){
  for(let attempt=0;attempt<4;attempt++){
   const plan=await find(id),[before]=await list('SELECT value FROM settings WHERE key=?',rowsKey(id)),previous=before?JSON.parse(before.value):null;

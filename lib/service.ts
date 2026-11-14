@@ -17,7 +17,8 @@ import {sourceDefinitions} from './source-rules.mjs';
 import {verifyStoredResults} from './verification-service';
 import {ensureRecommendationHistory,recordRecommendationObservation} from './recommendation-history-service';
 import {repairKingdomInterpretations} from './kingdom-repair-service';
-import {customMaterialSummaries,scheduledCustomMaterials} from './custom-material-service';
+import {customMaterialSummaries,customMaterialRankingData,scheduledCustomMaterials} from './custom-material-service';
+import {buildRankingSummary} from './ranking-summary.mjs';
 import {scheduledSimulations} from './simulation-service';
 import {collectionWindowOpen,nextSourceCollection,nextCollectionDay} from './collection-retry.mjs';
 import {validateSourceScheduleBatch} from './source-schedules.mjs';
@@ -347,7 +348,8 @@ export async function state(query:URLSearchParams){
  const issues=[...new Set(filtered.map(p=>p.year+'-'+p.issue))].sort().slice(-60);
  const trend=issues.map(issue=>({issue,...statistics(filtered.filter(p=>p.year+'-'+p.issue===issue))}));
  const nextCollection=sources.filter(s=>s.enabled&&s.next_run).map(s=>s.next_run).sort()[0]||null;
- return {runtime:(env as any).AUTH_MODE==='standalone'?'standalone':'sites',customMaterials:await customMaterialSummaries(),overviewDisplay:await getSetting('overviewDisplay',{range:20,chart:'area',showLoss:true}),folders:await listFolders(),trash:await trashList(),sources:rank,ranking,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,stats,global:statistics(all),draws,jobs,rules,drawSource,drawSync,scheduler,trend,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,scheduleInfo:{nextRun:nextCollection,estimatedRun:nextCollection?estimatedExecution(nextCollection,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'):null,nextCheck:estimatedExecution(now(),Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')}};
+ const rankingSummary=query.get('view')==='ranking'?buildRankingSummary({sources,predictions:all,materials:await customMaterialRankingData(),draws,expected:await getSetting('expectedDrawPeriods',{}),year:query.get('year')||''}):undefined;
+ return {runtime:(env as any).AUTH_MODE==='standalone'?'standalone':'sites',customMaterials:await customMaterialSummaries(),rankingSummary,overviewDisplay:await getSetting('overviewDisplay',{range:20,chart:'area',showLoss:true}),folders:await listFolders(),trash:await trashList(),sources:rank,ranking,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,stats,global:statistics(all),draws,jobs,rules,drawSource,drawSync,scheduler,trend,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,scheduleInfo:{nextRun:nextCollection,estimatedRun:nextCollection?estimatedExecution(nextCollection,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'):null,nextCheck:estimatedExecution(now(),Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')}};
 }
 export async function revise(predictionId:string,raw:string,kind:string){
  await finalizeCollections();
