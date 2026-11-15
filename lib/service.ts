@@ -4,6 +4,7 @@ import {resolveModule} from './content-resolver.mjs';
 import {resolveNavigationSource} from './source-resolver.mjs';
 import {decodeClientResponse} from './client-document.mjs';
 import {effectivePrediction} from './complete-prediction.mjs';
+import {purgedPeriodKey} from './trash-purge.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -33,7 +34,7 @@ async function batches(statements:any[]){for(let i=0;i<statements.length;i+=80)a
 function stmt(sql:string,...args:any[]){return db().prepare(sql).bind(...args);}
 export async function getSetting(key:string,fallback:any={}){const [r]=await list('SELECT value FROM settings WHERE key=?',key);return r?JSON.parse(r.value):fallback;}
 export async function putSetting(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
-async function log(name:string,status:string,message:string,count=0,sourceId:string|null=null){await run('INSERT INTO jobs(id,source_id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?,?)',id(),sourceId,name,status,message,count,now());}
+async function log(name:string,status:string,message:string,count=0,sourceId:string|null=null){await run('INSERT INTO jobs(id,source_id,name,status,message,count,created_at) SELECT ?,?,?,?,?,?,? WHERE ? IS NULL OR EXISTS(SELECT 1 FROM sources WHERE id=?)',id(),sourceId,name,status,message,count,now(),sourceId,sourceId);}
 function validateSource(s:any){
  if(!s.name?.trim())throw Error('请填写来源名称');
  if(!Number.isInteger(+s.year)||+s.year<2000||+s.year>2100)throw Error('请确认资料年份');
@@ -121,7 +122,7 @@ export async function saveSource(s:any){
  await log(s.name,warning?'warning':'success',warning?'配置已保存；'+(source.enabled?'识别失败将在21:30前每60分钟重试：':'自动采集已暂停：')+warning:'栏目配置已保存；下次计划 '+plannedLabel(nextRun),inserted,sourceId);
  return {id:sourceId,inserted,selector:source.selector,kind:source.kind,nextRun,estimatedRun:estimatedExecution(nextRun,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'),warning,enabled:!!source.enabled};
 }
-async function storeSnapshot(sourceId:string,html:string){await run('INSERT INTO snapshots(id,source_id,html,created_at) VALUES(?,?,?,?)',id(),sourceId,html,now());await run('DELETE FROM snapshots WHERE source_id=? AND id NOT IN(SELECT id FROM snapshots WHERE source_id=? ORDER BY created_at DESC LIMIT 5)',sourceId,sourceId);}
+async function storeSnapshot(sourceId:string,html:string){await run('INSERT INTO snapshots(id,source_id,html,created_at) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM sources WHERE id=? AND deleted_batch IS NULL)',id(),sourceId,html,now(),sourceId);await run('DELETE FROM snapshots WHERE source_id=? AND id NOT IN(SELECT id FROM snapshots WHERE source_id=? ORDER BY created_at DESC LIMIT 5)',sourceId,sourceId);}
 export async function toggleSource(sourceId:string,enabled:boolean){
  await finalizeCollections();
  const [s]=await list('SELECT * FROM sources WHERE id=? AND deleted_batch IS NULL',sourceId);if(!s)throw Error('找不到该栏目');
@@ -156,6 +157,7 @@ export async function ingest(source:any,rows:any[],historical=false){
  const old=await list('SELECT id,issue,year,raw,parsed,kind,changed,first_seen FROM predictions WHERE source_id=?',source.id);
  const captured=rows.find(r=>r.parsed?.sourceRules)?.parsed.sourceRules,profile=await captureDefinitions(source,captured);
  const hiddenPeriods=new Map((await list('SELECT year,issue,deleted_batch FROM collection_periods WHERE source_id=? AND deleted_batch IS NOT NULL',source.id)).map(p=>[p.year+'-'+p.issue,p.deleted_batch]));
+ const purged=new Set((await list("SELECT key FROM settings WHERE key LIKE ?",'purgedPeriod:'+source.id+':%')).map(r=>r.key));
  const existing=new Map(old.map(r=>[r.year+'-'+r.issue,r]));let inserted=0,changed=0;const commands=[],observations:any[]=[];const stamp=now();
  // Some older collectors retained a printed reference table inside the original
  // last row. Extract that already archived table even if the site removed the issue.
@@ -164,22 +166,23 @@ export async function ingest(source:any,rows:any[],historical=false){
   const definition=sourceDefinitions(stored.raw);if(!definition.entries.length)continue;
   const rules=enrichDefinition(previous.sourceRules,{...definition.rules,definitions:definition.entries.map(({index,...entry})=>entry),warnings:definition.warnings,capturedAt:stored.first_seen,version:'original:'+stored.id,origin:'首次采集原文内对照'});if(!rules)continue;
   stored.parsed=JSON.stringify({...previous,sourceRules:rules});
-  commands.push(stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) VALUES(?,?,?,?,'audit')",id(),stored.id,'[从首次留档原文提取对照；原文、推荐值和留档时间均保留]\n'+JSON.stringify(rules),stamp));
+  commands.push(stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) SELECT ?,?,?,?,'audit' WHERE EXISTS(SELECT 1 FROM predictions WHERE id=?)",id(),stored.id,'[从首次留档原文提取对照；原文、推荐值和留档时间均保留]\n'+JSON.stringify(rules),stamp,stored.id));
   commands.push(stmt('UPDATE predictions SET parsed=? WHERE id=?',stored.parsed,stored.id));
  }
  for(const r of rows){
   if(+r.issue<1||+r.issue>366)continue;
   const year=r.explicitYear||source.year+(r.yearOffset||0),key=year+'-'+r.issue,found=existing.get(key);
+  if(purged.has(purgedPeriodKey(source.id,year,r.issue)))continue;
   if(found){
    const previous=JSON.parse(found.parsed),candidate:any=parsePrediction(r.raw,r.kind||source.kind,source.name),rules=enrichDefinition(previous.sourceRules,year===source.year?attachDefinitionMetadata(r.parsed?.sourceRules,profile):null);
    if(!(found.changed&2)&&rules&&previous.valid&&candidate.valid&&found.kind===(r.kind||source.kind)&&previous.values.length===candidate.values.length&&previous.values.every((v:any)=>candidate.values.includes(v))){
-    commands.push(stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) VALUES(?,?,?,?,'audit')",id(),found.id,'[来源对照补全；原文和推荐值不变；开奖后补全仅用于历史核验]\n'+JSON.stringify(rules),stamp));
+    commands.push(stmt("INSERT INTO revisions(id,prediction_id,raw,created_at,change_type) SELECT ?,?,?,?,'audit' WHERE EXISTS(SELECT 1 FROM predictions WHERE id=?)",id(),found.id,'[来源对照补全；原文和推荐值不变；开奖后补全仅用于历史核验]\n'+JSON.stringify(rules),stamp,found.id));
     commands.push(stmt('UPDATE predictions SET parsed=?,historical=CASE WHEN EXISTS(SELECT 1 FROM draws WHERE draws.year=predictions.year AND draws.issue=predictions.issue) THEN 1 ELSE historical END WHERE id=?',JSON.stringify({...previous,sourceRules:rules}),found.id));
    }
    observations.push({id:found.id,raw:r.raw,kind:r.kind||source.kind,parsed:{...candidate,...r.parsed?.sourceRules&&year===source.year?{sourceRules:attachDefinitionMetadata(r.parsed.sourceRules,profile)}:previous.sourceRules?{sourceRules:previous.sourceRules}:{}}});continue;
   }
   const kind=r.kind||source.kind;const p={...parsePrediction(r.raw,kind,source.name),...(r.parsed?.sourceRules&&year===source.year?{sourceRules:attachDefinitionMetadata(r.parsed.sourceRules,profile)}:{})};
-  const predictionId=id(),deletedBatch=hiddenPeriods.get(key)||null;commands.push(stmt('INSERT OR IGNORE INTO predictions(id,source_id,year,issue,kind,raw,parsed,first_seen,last_seen,historical,deleted_batch) VALUES(?,?,?,?,?,?,?,?,?,?,?)',predictionId,source.id,year,r.issue,kind,r.raw,JSON.stringify(p),stamp,stamp,historical?1:0,deletedBatch));existing.set(key,{raw:r.raw,id:predictionId,parsed:JSON.stringify(p),kind,changed:0});if(!deletedBatch)inserted++;
+  const predictionId=id(),deletedBatch=hiddenPeriods.get(key)||null;commands.push(stmt("INSERT OR IGNORE INTO predictions(id,source_id,year,issue,kind,raw,parsed,first_seen,last_seen,historical,deleted_batch) SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM sources WHERE id=? AND deleted_batch IS NULL) AND NOT EXISTS(SELECT 1 FROM settings WHERE key=?)",predictionId,source.id,year,r.issue,kind,r.raw,JSON.stringify(p),stamp,stamp,historical?1:0,deletedBatch,source.id,purgedPeriodKey(source.id,year,r.issue)));existing.set(key,{raw:r.raw,id:predictionId,parsed:JSON.stringify(p),kind,changed:0});if(!deletedBatch)inserted++;
  }
  await batches(commands);for(const observation of observations){const result=await recordRecommendationObservation(observation.id,observation.raw,observation.kind,observation.parsed,stamp);if(result.changed)changed++;}return {inserted,changed};
 }
@@ -197,10 +200,10 @@ export async function crawl(sourceId:string,text?:string,options:any={}){
   s.kind=result.kind;
   const counts=await ingest(s,result.rows,!!text);
   if(!text)await storeSnapshot(s.id,result.html);
-  if(options.requiredIssue){const [required]=await list('SELECT * FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(effectivePrediction(required).parsed):null;}catch{}if(!parsed?.valid)throw Error(`${s.name}：第 ${options.requiredIssue} 期资料尚未采集完整，60分钟后重试`);}
+  if(options.requiredIssue&&!(await list('SELECT key FROM settings WHERE key=?',purgedPeriodKey(s.id,s.year,options.requiredIssue))).length){const [required]=await list('SELECT * FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(effectivePrediction(required).parsed):null;}catch{}if(!parsed?.valid)throw Error(`${s.name}：第 ${options.requiredIssue} 期资料尚未采集完整，60分钟后重试`);}
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
   await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=CASE WHEN ? THEN next_run ELSE ? END,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?1:0,options.preserveSchedule?null:nextSourceCollection(s,defaults),s.id);
-  if(result.navigation?.length)await putSetting('sourceNavigation:'+s.id,{resolvedAt:now(),contentUrl:result.url,steps:result.navigation});
+  if(result.navigation?.length)await run('INSERT INTO settings(key,value) SELECT ?,? WHERE EXISTS(SELECT 1 FROM sources WHERE id=? AND deleted_batch IS NULL) ON CONFLICT(key) DO UPDATE SET value=excluded.value','sourceNavigation:'+s.id,JSON.stringify({resolvedAt:now(),contentUrl:result.url,steps:result.navigation}),s.id);
   if(result.relocated)await log('正文自动定位','success',`${s.name}：已确认同一栏目并自动更新正文位置`,1,s.id);
   await log(s.name,'success',`新增 ${counts.inserted} 条，发现 ${counts.changed} 条内容变更${result.entryFallback?'；固定入口暂不可用，已使用上次核验的同栏目正文':''}`,counts.inserted,s.id);return counts;
  }catch(e:any){const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);await run('UPDATE sources SET last_run=?,next_run=CASE WHEN ? THEN next_run ELSE ? END,error=? WHERE id=?',now(),options.preserveSchedule?1:0,options.preserveSchedule?null:nextSourceCollection(s,defaults,true),e.message,s.id);await log(s.name,'error',e.message,0,s.id);throw e;}
@@ -265,7 +268,7 @@ export async function finalizeCollections(){
  for(const s of sources)for(const p of periods.values()){
   if(s.year!==p.year||done.has(s.id+'-'+p.year+'-'+p.issue)||ps.get(s.id+'-'+p.year+'-'+p.issue)?.deleted_batch)continue;
   const outcome=collectionOutcome(s,ps.get(s.id+'-'+p.year+'-'+p.issue),p.date);if(!outcome)continue;
-  const result=await run('INSERT OR IGNORE INTO collection_periods(id,source_id,year,issue,deadline_at,status,reason,finalized_at) VALUES(?,?,?,?,?,?,?,?)',id(),s.id,p.year,p.issue,outcome.deadline,outcome.status,outcome.reason,now());
+  const result=await run("INSERT OR IGNORE INTO collection_periods(id,source_id,year,issue,deadline_at,status,reason,finalized_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM sources WHERE id=? AND deleted_batch IS NULL) AND NOT EXISTS(SELECT 1 FROM settings WHERE key=?)",id(),s.id,p.year,p.issue,outcome.deadline,outcome.status,outcome.reason,now(),s.id,purgedPeriodKey(s.id,p.year,p.issue));
   if(result.meta.changes&&outcome.status==='failed'){failed++;await log(s.name,'error',`${p.year} 年第 ${p.issue} 期：${outcome.reason}`,0,s.id);}
  }
  return {failed};

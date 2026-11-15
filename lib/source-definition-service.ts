@@ -17,8 +17,8 @@ export async function captureDefinitions(source:any,rules:any){
  const [old]=await list('SELECT value FROM settings WHERE key=?',key),before=old?JSON.parse(old.value):null;
  if(before?.version===hash)return before;
  const value={sourceId:source.id,year:source.year,name:source.name,url:source.url,rules,version:hash,capturedAt:new Date().toISOString()};
- await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));
- await run('INSERT INTO jobs(id,source_id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?,?)',crypto.randomUUID(),source.id,'来源对照采集','success',`已保存 ${source.name} 的栏目专用对照（${rules.definitions?.length||7} 个分组）；仅使用完整、无重叠的49号码对照`,rules.definitions?.length||7,value.capturedAt);
+ const saved=await run('INSERT INTO settings(key,value) SELECT ?,? WHERE EXISTS(SELECT 1 FROM sources WHERE id=? AND deleted_batch IS NULL) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value),source.id);if(!saved.meta.changes)return null;
+ await run('INSERT INTO jobs(id,source_id,name,status,message,count,created_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM sources WHERE id=?)',crypto.randomUUID(),source.id,'来源对照采集','success',`已保存 ${source.name} 的栏目专用对照（${rules.definitions?.length||7} 个分组）；仅使用完整、无重叠的49号码对照`,rules.definitions?.length||7,value.capturedAt,source.id);
  return value;
 }
 export function attachDefinitionMetadata(rules:any,profile:any){return profile?{...rules,capturedAt:profile.capturedAt,version:profile.version}:rules;}

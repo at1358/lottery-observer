@@ -3,6 +3,7 @@ import {getChatGPTUser} from '../../chatgpt-auth';
 import * as svc from '../../../lib/service';
 import * as account from '../../../lib/accounts';
 import * as manage from '../../../lib/manage';
+import {purgeTrash} from '../../../lib/trash-purge-service';
 import {exportBackup} from '../../../lib/backup';
 import {readNumberReference,saveNumberReference} from '../../../lib/reference-service';
 import {pushState,savePush,testPush,sendLatestDraw} from '../../../lib/wecom';
@@ -19,7 +20,7 @@ async function handle(request:Request,context:any){
   // All browser data and mutations additionally require visitor identity.
   const publicAuth=['auth/login','auth/bootstrap','auth/logout'];
   if(['tick','service'].includes(path))await account.authorizeService(request);
-  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup'||(path.startsWith('number-reference')||path.startsWith('wecom/')||path.startsWith('source-alerts/'))&&request.method!=='GET');
+  else if(!publicAuth.includes(path))await account.requirePrincipal(request.method!=='GET'&&path!=='account/password',path.startsWith('users')||path==='settings'||path==='backup'||path==='trash/purge'||(path.startsWith('number-reference')||path.startsWith('wecom/')||path.startsWith('source-alerts/'))&&request.method!=='GET');
   if(request.method==='GET'){
    if(path==='state')return Response.json(await svc.state(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='wecom')return Response.json(await pushState(),{headers:{'Cache-Control':'no-store'}});
@@ -60,6 +61,7 @@ async function handle(request:Request,context:any){
    case 'folders/reorder':result=await manage.reorder(body);break;
    case 'folders/delete':result=await manage.deleteFolder(body);break;
    case 'trash/restore':result=await manage.restore(body.id);break;
+   case 'trash/purge':result=await purgeTrash(body);break;
    case 'preview':{const p=await svc.previewSource(body);result={kind:p.kind,selector:p.selector,contentUrl:p.url,identity:p.identity,relocated:p.relocated,followedPages:p.followedPages,navigation:p.navigation,rows:p.rows.slice(0,10),total:p.rows.length};break;}
    case 'source':result=await svc.saveSource(body);break;
    case 'recheck':result=await svc.recheckResults(body);break;
