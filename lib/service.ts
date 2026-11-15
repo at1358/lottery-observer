@@ -5,6 +5,7 @@ import {resolveNavigationSource} from './source-resolver.mjs';
 import {decodeClientResponse} from './client-document.mjs';
 import {effectivePrediction} from './complete-prediction.mjs';
 import {purgedPeriodKey} from './trash-purge.mjs';
+import {transientSourceError} from './source-transport.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -75,7 +76,7 @@ async function sourceDownload(url:string){
  for(let attempt=0;attempt<3;attempt++){
   const target=checkUrl(url);if(attempt)target.searchParams.set('_period_observer_retry',Date.now()+'-'+attempt);
   try{const result=await download(target.href,true);const canonical=new URL(result.url);canonical.searchParams.delete('_period_observer_retry');return {...result,url:canonical.href};}
-  catch(e:any){lastError=e;if(e.code!=='UNRELATED_REDIRECT')throw e;}
+  catch(e:any){lastError=e;if(e.code!=='UNRELATED_REDIRECT'&&!(attempt===0&&transientSourceError(e)))throw e;}
  }
  throw lastError;
 }

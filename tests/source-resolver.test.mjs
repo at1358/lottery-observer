@@ -25,3 +25,10 @@ test('redirect verification can use a verified public data document only, with e
  for(const [s,o] of [[{...source,content_url:'https://other.example/a.js'},options],[source,{...options,identity:''}],[source,{...options,identity:'其他作者【经典24码】'}]])await assert.rejects(resolveNavigationSource(s,o,blocked,async url=>({url,text:clientScript()})));
  await assert.rejects(resolveNavigationSource(source,options,async()=>{throw Object.assign(Error('unsafe'),{code:'UNSAFE_SOURCE_URL'});},async url=>({url,text:clientScript()})),/unsafe/);
 });
+test('a redirect entry DNS failure can use only its retained verified public document',async()=>{
+ const source={url:'http://901.com/',name:clientName,entry_mode:'redirect',content_url:clientUrl},options={kind:'24码',name:clientName,sample:clientRaw,identity:clientName};let attempts=0;
+ const broken=async()=>{attempts++;throw Object.assign(Error('fetch failed'),{cause:{code:'ENOTFOUND'}});};
+ const result=await resolveNavigationSource(source,options,broken,async url=>({url,text:clientScript()}));assert.equal(attempts,2);assert.equal(result.entryFallback,true);assert.equal(result.identity,clientName);assert.match(result.navigation[0].label,/网络暂不可用/);
+ let cachedCalls=0;for(const [s,o] of [[{...source,content_url:'https://other.example/unknown.js'},options],[source,{...options,identity:''}],[source,{...options,identity:'其他作者【经典24码】'}]])await assert.rejects(resolveNavigationSource(s,o,broken,async url=>{cachedCalls++;return {url,text:clientScript()};}));assert.equal(cachedCalls,1);
+ await assert.rejects(resolveNavigationSource(source,options,async()=>{throw Object.assign(Error('fetch failed'),{cause:{code:'CERT_HAS_EXPIRED'}});},async()=>{throw Error('certificate failures cannot use fallback');}));
+});
