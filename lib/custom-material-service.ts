@@ -70,7 +70,7 @@ export async function saveCustomMaterial(input:any){
   ]);if(!results[1].meta.changes)throw Error('该栏目存在并发修改，请重新载入');
  }else{const saved=await run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',planKey(id),serialized);if(!saved.meta.changes)throw Error('栏目已存在，请重新载入');}
  const result=await refreshCustomMaterial(id);
- await run('INSERT INTO jobs(id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),'自建资料','success',`「${plan.name}」已保存：${plan.year} 年${isManualMaterial(plan)?(plan.type==='manual-numbers'?'手工推荐号码':'手工杀码'):`目标期减 ${plan.lag} 期取冲肖杀号`}，已生成 ${result.rows.length} 期`,result.rows.length,stamp());
+ await run('INSERT INTO jobs(id,name,status,message,count,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),'自建资料','success',`「${plan.name}」已保存：${plan.year} 年${isManualMaterial(plan)?(plan.type==='manual-zodiacs'?'手工推荐生肖':plan.type==='manual-numbers'?'手工推荐号码':'手工杀码'):`目标期减 ${plan.lag} 期取冲肖杀号`}，已生成 ${result.rows.length} 期`,result.rows.length,stamp());
  return {plan,stats:result.stats};
 }
 export async function readCustomMaterials(params=new URLSearchParams()){
@@ -85,13 +85,13 @@ export async function readCustomMaterials(params=new URLSearchParams()){
 export async function customCombinationData(ids:string[],year:number){
  const materials=[],records=[];const profile=await setting('numberReference:'+year),draws=await list('SELECT * FROM draws WHERE year BETWEEN ? AND ?',year-2,year),expected=await setting('expectedDrawPeriods',{}),resolveZodiacs=periodZodiacResolver(year,profile,draws,Object.values(expected));
  for(const id of [...new Set(ids)]){
-  const plan=await setting(planKey(id));if(!plan)continue;const pack=await setting(rowsKey(id),{rows:[]}),kind=plan.type==='manual-numbers'?'号码':plan.type==='manual-kill'?'杀号码':'杀肖',ruleKey=materialRuleKey(plan);
+  const plan=await setting(planKey(id));if(!plan)continue;const pack=await setting(rowsKey(id),{rows:[]}),kind=plan.type==='manual-zodiacs'?'生肖':plan.type==='manual-numbers'?'号码':plan.type==='manual-kill'?'杀号码':'杀肖',ruleKey=materialRuleKey(plan);
   materials.push({id:plan.id,name:plan.name,year:plan.year,kind,ruleKey});
   if(plan.year!==year)continue;
   for(const row of pack.rows){
-   const valid=isManualMaterial(plan)?row.valid&&row.killNumbers.length>0:!!row.killZodiac,values=isManualMaterial(plan)?row.killNumbers:row.killZodiac?[row.killZodiac]:[],raw=isManualMaterial(plan)?row.rawLines.map((r:any)=>r.raw).join('\n'):`${row.issue}期：绝杀一肖【${row.killZodiac||'待补'}】\n依据：${row.sourceYear}年第${row.sourceIssue}期 ${row.sourceZodiac||'待补'}${row.sourceNumber||''}\n对应号码：${row.killNumbers.join(' ')}`;
+   const selectedValues=plan.type==='manual-zodiacs'?row.recommendedZodiacs||[]:row.killNumbers,valid=isManualMaterial(plan)?row.valid&&selectedValues.length>0:!!row.killZodiac,values=isManualMaterial(plan)?selectedValues:row.killZodiac?[row.killZodiac]:[],raw=isManualMaterial(plan)?row.rawLines.map((r:any)=>r.raw).join('\n'):`${row.issue}期：绝杀一肖【${row.killZodiac||'待补'}】\n依据：${row.sourceYear}年第${row.sourceIssue}期 ${row.sourceZodiac||'待补'}${row.sourceNumber||''}\n对应号码：${row.killNumbers.join(' ')}`;
    const mapping=resolveZodiacs(row.issue),zodiacs=mapping?.zodiacs;
-   const parsed={valid,values,warnings:valid?[]:[row.reason],...(kind==='杀肖'&&zodiacs?{sourceRules:{zodiacs,mappingOrigin:mapping.origin,mappingProvenance:mapping.provenance}}:{})},recordKey=JSON.stringify([ruleKey,row.issue,row.basisKey,row.killNumbers,parsed.sourceRules||null]);
+   const parsed={valid,values,warnings:valid?[]:[row.reason],...(['生肖','杀肖'].includes(kind)&&zodiacs?{sourceRules:{zodiacs,mappingOrigin:mapping.origin,mappingProvenance:mapping.provenance}}:{})},recordKey=JSON.stringify([ruleKey,row.issue,row.basisKey,selectedValues,parsed.sourceRules||null]);
    records.push({id:'custom:'+id+':'+row.issue,materialId:id,year,issue:row.issue,kind,raw,parsed,recordKey,first_seen:row.generatedAt||row.firstSeen,historical:row.mode!=='forecast'});
   }
  }
