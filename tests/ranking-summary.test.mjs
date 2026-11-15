@@ -37,3 +37,9 @@ test('first complete forecast values are retained and collection failure cannot 
  const complete=prediction('a',319,'pending',[1,2,3],{recoveredFromPlaceholder:true,initial_raw:'00'}),summary=buildRankingSummary({...options,sources:[source('a','主攻15码','15码')],predictions:[complete]});assert.deepEqual(group(summary,'numbers').rows[0].latest.values,[1,2,3]);assert.equal(group(summary,'numbers').ready,1);
  complete.verdict.status='collection_failed';assert.equal(group(buildRankingSummary({...options,sources:[source('a','15码','15码')],predictions:[complete]}),'numbers').ready,0);
 });
+test('latest correct issue is the newest verified win, separate from streak and latest error',()=>{
+ const rows=[prediction('a',319,'pending'),prediction('a',318,'loss'),prediction('a',317,'win'),prediction('a',316,'review'),prediction('a',315,'win'),prediction('a',320,'win'),prediction('a',365,'win',[1],{year:2025})];
+ const summary=buildRankingSummary({...options,sources:[source('a','主攻15码','15码')],predictions:rows,materials:[custom('lag','lag-zodiac',null,[{issue:'319',killZodiac:'鼠',status:'pending'},{issue:'318',killZodiac:'牛',status:'win'},{issue:'317',status:'loss'}])]});
+ const item=group(summary,'numbers').rows[0];assert.deepEqual(item.stats.latestWin,{year:2026,issue:'317'});assert.deepEqual(item.stats.latestLoss,{year:2026,issue:'318'});assert.equal(item.stats.currentStreak,0);assert.deepEqual(group(summary,'zodiacs').rows[0].stats.latestWin,{year:2026,issue:'318'});
+ const onlyLoss=group(buildRankingSummary({...options,sources:[source('b','36码','36码')],predictions:[prediction('b',318,'loss')]}),'thirtySix').rows[0];assert.equal(onlyLoss.stats.latestWin,null);
+});
