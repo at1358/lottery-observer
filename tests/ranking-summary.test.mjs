@@ -43,3 +43,14 @@ test('latest correct issue is the newest verified win, separate from streak and 
  const item=group(summary,'numbers').rows[0];assert.deepEqual(item.stats.latestWin,{year:2026,issue:'317'});assert.deepEqual(item.stats.latestLoss,{year:2026,issue:'318'});assert.equal(item.stats.currentStreak,0);assert.deepEqual(group(summary,'zodiacs').rows[0].stats.latestWin,{year:2026,issue:'318'});
  const onlyLoss=group(buildRankingSummary({...options,sources:[source('b','36码','36码')],predictions:[prediction('b',318,'loss')]}),'thirtySix').rows[0];assert.equal(onlyLoss.stats.latestWin,null);
 });
+
+test('36-code complement is exactly the 13 absent numbers from the same complete current period',()=>{
+ const values=Array.from({length:36},(_,i)=>i+1),record=prediction('a',319,'pending',values),before=structuredClone(record),source36=source('a','必中36码','36码');
+ const build=rows=>group(buildRankingSummary({...options,sources:[source36],predictions:rows}),'thirtySix').rows[0];
+ assert.deepEqual(build([record]).latest.missingNumbers,Array.from({length:13},(_,i)=>i+37));assert.deepEqual(record,before);
+ assert.deepEqual(build([prediction('a',319,'win',values.map(n=>n+13))]).latest.missingNumbers,Array.from({length:13},(_,i)=>i+1));
+ for(const bad of [values.slice(1),[...values.slice(0,-1),1],[0,...values.slice(1)],[50,...values.slice(1)],values.map(String)])assert.equal(build([prediction('a',319,'pending',bad)]).latest.missingNumbers,null);
+ assert.equal(build([prediction('a',319,'review',values)]).latest.missingNumbers,null);assert.equal(build([prediction('a',319,'collection_failed',values)]).latest.missingNumbers,null);
+ assert.equal(build([prediction('a',318,'win',values)]).latest,null);
+ const fifteen=group(buildRankingSummary({...options,sources:[source('b','15码','15码')],predictions:[prediction('b',319,'pending',values.slice(0,15))]}),'numbers').rows[0];assert.ok(!Object.hasOwn(fifteen.latest,'missingNumbers'));
+});
