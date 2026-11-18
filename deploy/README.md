@@ -59,3 +59,8 @@ sudo systemctl start period-observer.service
 默认 21:35 截止，失败按来源和期数保存；来源暂停不补记失败。删除的来源暂停，恢复后也保持暂停，需要手动启用。删除原文保留墓碑，防止下一次自动采集恢复已删资料；回收站可主动恢复。
 
 可用 `journalctl -u period-observer.service`、`journalctl -u period-observer-tick.service` 和网站运行日志排查。后台密钥仅在环境文件中保存，不写进浏览器、源码或日志。Node 版本已在本地生产模式验证；未连接你的 Linux 主机，systemd 和 Nginx 示例仍须在目标主机核对。
+# 手机访问
+
+手机访问原网站地址时，Nginx 会用临时跳转进入 `/m`，并保留当前栏目路径和筛选参数。移动入口与桌面端共用账号、资料和核验结果；API、静态文件和已有 `/m` 页面不参与跳转。平板和桌面浏览器保持原入口，窄屏仍可使用自适应布局。
+
+Ubuntu 24.04 与 Rocky Linux 9 的安装、更新脚本都会生成手机跳转规则。自行管理 Nginx 时，在 `http` 层只引入一次 `mobile-routing.conf`，并参考 `nginx.conf.example` 中的页面跳转和反向代理配置；修改后先运行 `nginx -t` 再重载。

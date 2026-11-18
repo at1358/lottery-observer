@@ -1,5 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./mobile.css";
+
+export const viewport: Viewport = {width:'device-width',initialScale:1,viewportFit:'cover'};
 
 export const metadata: Metadata = {
   title: "期数采集台 · 网页资料核验系统",

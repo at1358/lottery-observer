@@ -150,7 +150,8 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 """)
-    nginx = common + f"server {{\n    listen 80;\n    server_name {domain};\n"
+    mobile_routing = Path(__file__).with_name("mobile-routing.conf").read_text()
+    nginx = common + mobile_routing + f"\nserver {{\n    listen 80;\n    server_name {domain};\n"
     if cert:
         nginx += f"""    return 301 https://{domain}$request_uri;
 }}
@@ -162,6 +163,10 @@ server {{
     ssl_protocols TLSv1.2 TLSv1.3;
 """
     nginx += f"""    client_max_body_size 2m;
+    add_header Vary "User-Agent" always;
+    if ($period_observer_mobile_target) {{
+        return 302 $period_observer_mobile_target$is_args$args;
+    }}
     location / {{
         proxy_pass http://127.0.0.1:{port};
         proxy_http_version 1.1;

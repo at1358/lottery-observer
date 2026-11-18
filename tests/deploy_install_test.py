@@ -132,11 +132,25 @@ class HelperTests(unittest.TestCase):
         self.assertIn("OnCalendar=*-*-* *:*:00", (self.root / "period-observer-tick.timer").read_text())
         self.assertIn("TimeoutStartSec=40min", (self.root / "period-observer-tick.service").read_text())
 
-    def test_http_template_has_no_tls_or_redirect(self):
+    def test_http_template_has_no_tls_or_https_redirect(self):
         support.templates("127.0.0.1", 3000, "", "", self.root)
         text = (self.root / "period-observer.conf").read_text()
         self.assertNotIn("ssl_certificate", text)
         self.assertNotIn("return 301", text)
+
+    def test_phone_routing_is_limited_to_safe_page_requests_and_preserves_queries(self):
+        support.templates("observer.example.com", 3000, "", "", self.root)
+        text = (self.root / "period-observer.conf").read_text()
+        self.assertIn('map $http_user_agent $period_observer_phone', text)
+        self.assertIn('"GET:1:/" /m;', text)
+        self.assertIn('"HEAD:1:/" /m;', text)
+        self.assertIn('(?:GET|HEAD):1:(/materials/', text)
+        self.assertIn('(?:GET|HEAD):1:(/self-materials/', text)
+        self.assertIn('return 302 $period_observer_mobile_target$is_args$args;', text)
+        self.assertIn('add_header Vary "User-Agent" always;', text)
+        self.assertNotIn('POST:1:', text)
+        self.assertNotIn('1:(/api/', text)
+        self.assertEqual(text.count('map $http_user_agent'), 1)
 
     def test_templates_reject_injected_paths_or_domain(self):
         with self.assertRaises(ValueError):
