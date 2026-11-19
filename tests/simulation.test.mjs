@@ -33,6 +33,12 @@ test('integer-cent money validation, decimal rounding and year/period isolation'
 test('latest loss metadata sorts by period and retreats when a draw is corrected',()=>{
  const rows=[{year:2026,issue:'001',status:'loss',actualNumber:1},{year:2026,issue:'020',status:'win'},{year:2026,issue:'013',status:'loss',actualNumber:13,actualZodiac:'马'}];assert.deepEqual(customMaterialStats(rows).latestLoss,{year:2026,issue:'013',number:13,zodiac:'马'});rows[2].status='win';assert.equal(customMaterialStats(rows).latestLoss.issue,'001');rows[0].status='win';assert.equal(customMaterialStats(rows).latestLoss,null);
 });
+
+test('custom latest correct period uses all verified rows, sorts across years and preserves input',()=>{
+ const rows=[{year:2026,issue:'009',status:'win',actualNumber:9,actualZodiac:'鸡'},{year:2025,issue:'365',status:'win',actualNumber:49},{year:2026,issue:'011',status:'pending'},{year:2026,issue:'010',status:'review'},{year:2026,issue:'002',status:'win',actualNumber:2},{year:2026,issue:'008',status:'loss',actualNumber:8}],before=structuredClone(rows),stats=customMaterialStats(rows);
+ assert.deepEqual(stats.latestWin,{year:2026,issue:'009',number:9,zodiac:'鸡'});assert.equal(stats.latestLoss.issue,'008');assert.equal(stats.win,3);assert.equal(stats.settled,4);assert.deepEqual(rows,before);
+ rows[0].status='loss';assert.equal(customMaterialStats(rows).latestWin.issue,'002');rows[4].status='loss';assert.equal(customMaterialStats(rows).latestWin.year,2025);rows[1].status='loss';assert.equal(customMaterialStats(rows).latestWin,null);assert.equal(customMaterialStats([]).latestWin,null);
+});
 test('n-minus-six fills all first six 2026 periods from actual 2025 tail draws',()=>{
  const tails=['牛','马','羊','龙','马','龙'],opposites=['羊','鼠','牛','狗','鼠','狗'],draws=tails.map((zodiac,i)=>({year:2025,issue:String(360+i),number:i+1,zodiac}));for(let i=1;i<=6;i++)draws.push({year:2026,issue:String(i).padStart(3,'0'),number:i+10,zodiac:'虎'});
  const result=buildCustomMaterial({year:2026,name:'n−6',lag:6,periodCounts:{}},draws);for(let i=1;i<=6;i++){const row=result.rows.find(r=>+r.issue===i);assert.equal(row.sourceYear,2025);assert.equal(+row.sourceIssue,359+i);assert.equal(row.killZodiac,opposites[i-1]);assert.equal(row.status,'win');}
