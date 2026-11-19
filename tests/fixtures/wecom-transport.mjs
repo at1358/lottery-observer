@@ -3,12 +3,14 @@ import {appendFileSync,readFileSync} from 'node:fs';
 import {publicLoader,publicBridge,publicPortal,publicLine,publicColumn,entryToken} from './public-entry.mjs';
 import {hostnameFormResponse} from './hostname-form-entry.mjs';
 import {clientResponse} from './client-document.mjs';
+import {checkedLineResponse} from './checked-line-source.mjs';
 const fetchOriginal=globalThis.fetch;
 if(!process.env.QA_WECOM_LOG||!/^5\d{3}$/.test(process.env.PORT||''))throw Error('Local QA environment required');
 const RealDate=Date;
 if(process.env.QA_CLOCK_FILE){const now=()=>{try{const text=readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim();if(text.startsWith('{')){const clock=JSON.parse(text),base=RealDate.parse(clock.base),started=Number(clock.startedAt);if(Number.isFinite(base)&&Number.isFinite(started))return base+RealDate.now()-started;}const value=RealDate.parse(text);return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ const checkedLineFixture=checkedLineResponse(url);if(checkedLineFixture){if(process.env.QA_FETCH_LOG)appendFileSync(process.env.QA_FETCH_LOG,JSON.stringify({kind:'checked-line',url:url.href,bytes:Number(checkedLineFixture.headers.get('content-length'))})+'\n');return checkedLineFixture;}
  if(url.hostname==='qa-http-client-entry.example'){
   if(process.env.QA_FETCH_LOG)appendFileSync(process.env.QA_FETCH_LOG,JSON.stringify({kind:'source-transport',url:url.href})+'\n');
   return new Response('temporarily unavailable',{status:503});

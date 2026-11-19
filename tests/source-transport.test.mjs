@@ -1,5 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {transientSourceError,sourceHttpError} from '../lib/source-transport.mjs';
+import {transientSourceError,sourceHttpError,sourceBodyLimit} from '../lib/source-transport.mjs';
+
+test('only recognized public encoded document paths receive the bounded 3 MB transport allowance',()=>{
+ assert.equal(sourceBodyLimit('https://cdn.example/upload/script/11/d3cfe58782527430.js'),3000000);
+ for(const url of ['https://cdn.example/large.html','https://cdn.example/script.js','https://cdn.example/upload/script/11/anything.js','https://cdn.example/upload/script/11/d3cfe58782527430.js/other','invalid'])assert.equal(sourceBodyLimit(url),1200000);
+});
 test('temporary DNS/socket failures and DOM timeouts are retryable, certificate and identity failures are not',()=>{
  for(const code of ['ENOTFOUND','EAI_AGAIN','ECONNRESET','UND_ERR_CONNECT_TIMEOUT','UND_ERR_SOCKET'])assert.equal(transientSourceError(Object.assign(Error('fetch failed'),{cause:{code}})),true);
  assert.equal(transientSourceError(new DOMException('operation timed out','TimeoutError')),true);assert.equal(transientSourceError(new DOMException('operation aborted','AbortError')),true);

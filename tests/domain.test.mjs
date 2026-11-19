@@ -6,6 +6,14 @@ test('multiline numbers exclude period, source draw annotation and preserve sour
  const raw='097期：24码中特 开鼠43准\n【01.02.03.04.05.06.07.08.09.10.11.12】\n【13.14.15.16.17.18.19.20.21.22.23.24】';
  const r=p(raw,'24码');assert.equal(r.parsed.valid,true);assert.equal(r.parsed.values.length,24);assert.ok(!r.parsed.values.includes(43));assert.equal(evaluate(r,{number:43}).status,'loss');
 });
+
+test('unknown draw placeholders never consume the following complete number line',()=>{
+ const numbers='07.45.17.43.47.30.06.22.26.23.31.35.03.28.40';
+ for(const ending of ['开:??准','特开:？准','开奖:未知','开:？00准','开:猪20准']){
+  const raw='324期:〖15码中特〗'+ending+'\n'+numbers+'\n---------------------------------------',parsed=parsePrediction(raw,'15码','机神传说【15码中特】');
+  assert.equal(parsed.valid,true,ending);assert.deepEqual(parsed.values,numbers.split('.').map(Number));assert.equal(parsed.values.length,15);assert.ok(!parsed.values.includes(20));
+ }
+});
 test('numeric anomalies are not silently repaired',()=>{
  assert.equal(p('097期：36码\n01 02 3941 04','36码').parsed.valid,false);
  assert.equal(p('097期：号码【01.01.50】','号码').parsed.valid,false);

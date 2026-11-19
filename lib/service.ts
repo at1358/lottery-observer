@@ -6,7 +6,7 @@ import {resolveNavigationSource} from './source-resolver.mjs';
 import {decodeClientResponse} from './client-document.mjs';
 import {effectivePrediction} from './complete-prediction.mjs';
 import {purgedPeriodKey} from './trash-purge.mjs';
-import {transientSourceError,sourceHttpError} from './source-transport.mjs';
+import {transientSourceError,sourceHttpError,sourceBodyLimit} from './source-transport.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -63,8 +63,8 @@ async function download(url:string,strictOrigin=false,referer?:string,exposeRedi
   if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(exposeRedirect)return {text:'',url:u.href,redirectUrl:next.href,redirectRequest:[307,308].includes(response.status)?transport:undefined};if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源对服务器请求返回跨站跳转，已停止本次采集；浏览器可能仍可访问，已有留档资料可以继续复核');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
   if(!response.ok)throw sourceHttpError(response.status);
   const reader=response.body?.getReader();if(!reader)throw Error('网站没有返回内容');
-  const chunks:Uint8Array[]=[];let size=0;
-  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>1200000){await reader.cancel();throw Error('网页超过 1.2 MB，请缩小采集范围或使用接口');}chunks.push(value);}
+  const chunks:Uint8Array[]=[],limit=sourceBodyLimit(u.href);let size=0;
+  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();throw Error(limit===1200000?'网页超过 1.2 MB，请缩小采集范围或使用接口':'公开正文脚本超过 3 MB，请缩小采集范围或使用接口');}chunks.push(value);}
   const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
   const head=new TextDecoder().decode(bytes.slice(0,2048));const charset=(response.headers.get('content-type')?.match(/charset=["']?([^;\s"']+)/i)||head.match(/charset=["']?([^\s"'>;]+)/i))?.[1]||'utf-8';
   let text:string;try{text=new TextDecoder(charset).decode(bytes);}catch{text=new TextDecoder().decode(bytes);}
