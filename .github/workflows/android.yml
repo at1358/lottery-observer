@@ -33,6 +33,7 @@ jobs:
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" 'platforms;android-36' 'build-tools;35.0.0'
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
       - name: Tests, lint and unsigned release
         run: gradle -p android --no-daemon --max-workers=2 testDebugUnitTest lintRelease assembleRelease
       - name: Preserve checks and unsigned package

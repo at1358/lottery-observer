@@ -2,3 +2,5 @@
 *.py text eol=lf
 *.service text eol=lf
 *.timer text eol=lf
+android/gradlew text eol=lf
+android/gradlew.bat text eol=crlf
