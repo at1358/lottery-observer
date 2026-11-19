@@ -1,3 +1,4 @@
+import {costLedgerState,saveCostSettings,saveCostEntry,voidCostEntry,refreshCostLedger} from '../../../lib/cost-ledger-service';
 import {deletePlan} from '../../../lib/plan-lifecycle';
 import {getChatGPTUser} from '../../chatgpt-auth';
 import * as svc from '../../../lib/service';
@@ -27,6 +28,7 @@ async function handle(request:Request,context:any){
    if(path==='source-alerts')return Response.json(await readSourceAlerts(),{headers:{'Cache-Control':'no-store'}});
    if(path==='combinations')return Response.json(await combinationState(url.searchParams.get('plan')||undefined,url.searchParams.get('issue')||undefined),{headers:{'Cache-Control':'no-store'}});
    if(path==='custom-materials')return Response.json(await readCustomMaterials(url.searchParams),{headers:{'Cache-Control':'no-store'}});
+   if(path==='cost-ledger')return Response.json(await costLedgerState(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='simulations')return Response.json(await readSimulations(url.searchParams),{headers:{'Cache-Control':'no-store'}});
    if(path==='simulations/candidates')return Response.json(await simulationCandidates(url.searchParams.get('combination')||''),{headers:{'Cache-Control':'no-store'}});
    if(path==='source-definition')return Response.json(await readSourceDefinitions(url.searchParams.get('source')||'',url.searchParams.get('year')),{headers:{'Cache-Control':'no-store'}});
@@ -83,6 +85,10 @@ async function handle(request:Request,context:any){
    case 'combinations/send':await account.requirePrincipal(true);result=await pushCombination(body);break;
    case 'custom-materials/save':result=await saveCustomMaterial(body);break;
    case 'custom-materials/recheck':{const r=await refreshCustomMaterial(body.id);result={stats:r.stats,lastCheckedAt:r.lastCheckedAt};break;}
+   case 'cost-ledger/settings':result=await saveCostSettings(body,await account.requirePrincipal(true));break;
+   case 'cost-ledger/entry':result=await saveCostEntry(body,await account.requirePrincipal(true));break;
+   case 'cost-ledger/void':result=await voidCostEntry(body,await account.requirePrincipal(true));break;
+   case 'cost-ledger/recalculate':result=await refreshCostLedger('manual');break;
    case 'simulations/save':result=await saveSimulation(body);break;
    case 'simulations/recalculate':{const r=await refreshSimulation(body.id);result={stats:r.stats,lastCheckedAt:r.lastCheckedAt};break;}
    case 'simulations/selection':result=await saveSimulationSelection(body);break;
