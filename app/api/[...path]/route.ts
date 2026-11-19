@@ -1,5 +1,6 @@
 import {costLedgerState,saveCostSettings,saveCostEntry,voidCostEntry,refreshCostLedger} from '../../../lib/cost-ledger-service';
 import {deletePlan} from '../../../lib/plan-lifecycle';
+import {saveRankingSelection} from '../../../lib/ranking-selection-service';
 import {getChatGPTUser} from '../../chatgpt-auth';
 import * as svc from '../../../lib/service';
 import * as account from '../../../lib/accounts';
@@ -55,6 +56,7 @@ async function handle(request:Request,context:any){
    case 'users/update':result=await account.updateUser(body);break;
    case 'account/password':result=await account.changePassword(body);break;
    case 'sources/delete':result=await manage.deleteSources(body);break;
+   case 'ranking/selection':result=await saveRankingSelection(body);break;
    case 'sources/schedule':result=await svc.saveSourceSchedules(body);break;
    case 'sources/crawl':result=await svc.crawlBatchSource(body);break;
    case 'records/delete':result=await manage.deleteRecords(body);break;

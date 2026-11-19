@@ -9,7 +9,7 @@ import {purgedPeriodKey} from './trash-purge.mjs';
 import {transientSourceError,sourceHttpError,sourceBodyLimit} from './source-transport.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
-import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
+import {DEFAULT_DRAW_SCHEDULE,collectionOutcome,incompleteCollectionMessage} from './collection-deadline.mjs';
 import {folders as listFolders,ensureFolder,trashList} from './manage';
 import {rulesWithReference,validateReferenceYear} from './number-reference.mjs';
 import {collectReference} from './reference-collector.mjs';
@@ -202,7 +202,7 @@ export async function crawl(sourceId:string,text?:string,options:any={}){
   s.kind=result.kind;
   const counts=await ingest(s,result.rows,!!text);
   if(!text)await storeSnapshot(s.id,result.html);
-  if(options.requiredIssue&&!(await list('SELECT key FROM settings WHERE key=?',purgedPeriodKey(s.id,s.year,options.requiredIssue))).length){const [required]=await list('SELECT * FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(effectivePrediction(required).parsed):null;}catch{}if(!parsed?.valid)throw Error(`${s.name}：第 ${options.requiredIssue} 期资料尚未采集完整，60分钟后重试`);}
+  if(options.requiredIssue&&!(await list('SELECT key FROM settings WHERE key=?',purgedPeriodKey(s.id,s.year,options.requiredIssue))).length){const [required]=await list('SELECT * FROM predictions WHERE source_id=? AND year=? AND issue=? AND deleted_batch IS NULL',s.id,s.year,options.requiredIssue);let parsed:any=null;try{parsed=required?JSON.parse(effectivePrediction(required).parsed):null;}catch{}if(!parsed?.valid)throw Error(incompleteCollectionMessage(s,options.requiredIssue,result.rows));}
   const defaults=await getSetting('collectionSchedule',DEFAULT_SCHEDULE);
   await run('UPDATE sources SET kind=?,selector=?,content_url=?,locator_identity=?,last_run=?,next_run=CASE WHEN ? THEN next_run ELSE ? END,error=NULL WHERE id=?',s.kind,result.selector,s.url?result.url:'',result.identity||s.locator_identity||null,now(),options.preserveSchedule?1:0,options.preserveSchedule?null:nextSourceCollection(s,defaults),s.id);
   if(result.navigation?.length)await run('INSERT INTO settings(key,value) SELECT ?,? WHERE EXISTS(SELECT 1 FROM sources WHERE id=? AND deleted_batch IS NULL) ON CONFLICT(key) DO UPDATE SET value=excluded.value','sourceNavigation:'+s.id,JSON.stringify({resolvedAt:now(),contentUrl:result.url,steps:result.navigation}),s.id);
@@ -354,7 +354,7 @@ export async function state(query:URLSearchParams){
  const issues=[...new Set(filtered.map(p=>p.year+'-'+p.issue))].sort().slice(-60);
  const trend=issues.map(issue=>({issue,...statistics(filtered.filter(p=>p.year+'-'+p.issue===issue))}));
  const nextCollection=sources.filter(s=>s.enabled&&s.next_run).map(s=>s.next_run).sort()[0]||null;
- const rankingSummary=query.get('view')==='ranking'?buildRankingSummary({sources,predictions:all,materials:await customMaterialRankingData(),draws,expected:await getSetting('expectedDrawPeriods',{}),year:query.get('year')||''}):undefined;
+ const rankingSummary=query.get('view')==='ranking'?buildRankingSummary({sources,predictions:all,materials:await customMaterialRankingData(),draws,expected:await getSetting('expectedDrawPeriods',{}),year:query.get('year')||'',selection:await getSetting('rankingSummarySelection',{})}):undefined;
  return {runtime:(env as any).AUTH_MODE==='standalone'?'standalone':'sites',customMaterials:await customMaterialSummaries(),rankingSummary,overviewDisplay:await getSetting('overviewDisplay',{range:20,chart:'area',showLoss:true}),folders:await listFolders(),trash:await trashList(),sources:rank,ranking,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,stats,global:statistics(all),draws,jobs,rules,drawSource,drawSync,scheduler,trend,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,scheduleInfo:{nextRun:nextCollection,estimatedRun:nextCollection?estimatedExecution(nextCollection,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'):null,nextCheck:estimatedExecution(now(),Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')}};
 }
 export async function revise(predictionId:string,raw:string,kind:string){

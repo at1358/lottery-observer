@@ -24,5 +24,21 @@ await api('draw',{year,issue:4,number:49,zodiac:'牛',drawnAt:'2097-01-10T21:37:
 await api('draw',{year,issue:4,number:2,zodiac:'羊',drawnAt:'2097-01-10T21:37:00+08:00'});summary=(await api('state?view=ranking&year='+year)).rankingSummary;assert.equal(row('zodiacs',lag.id).stats.currentStreak,3);assert.equal(row('thirtySix',thirtySix.id).stats.win,4);assert.equal(row('numbers',manual.id).stats.win,2);
 assert.deepEqual(row('zodiacs',lag.id).stats.latestWin,{year,issue:'004'});assert.deepEqual(row('numbers',manual.id).stats.latestWin,{year,issue:'004'});assert.deepEqual(row('thirtySix',thirtySix.id).stats.latestWin,{year,issue:'004'});
 assert.deepEqual(row('thirtySix',thirtySix.id).latest.missingNumbers,Array.from({length:13},(_,i)=>i+37));
-await api('auth/login',{username:'qa-viewer',password:'Reset-local-only-password-9276'});assert.ok((await api('state?view=ranking&year='+year)).rankingSummary.groups.length===3);assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');writeFileSync(process.env.QA_CLOCK_FILE,'');db.close();
-console.log('PASS: authenticated ranking groups, shared current issue, custom/collected inclusion, all-history stats independent of pagination, strict streaks, live draw/correction refresh, immutable originals/plans/schedules, invalid years, viewer read access and unchanged non-ranking state. No external sends.');
+// Ranking membership is a reversible preference; the underlying datasets and
+// all original statistics survive removal, reload and re-addition.
+const protectedBeforeSelection=protectedRows(),snapshotSummary=(await api('state?view=ranking&year='+year)).rankingSummary;
+for(const [groupId,keys] of [['zodiacs',['custom:'+lag.id]],['numbers',['collected:'+fifteen.id,'custom:'+manual.id]],['thirtySix',['collected:'+thirtySix.id]]]){
+ const initial=(await api('state?view=ranking&year='+year)).rankingSummary,oldRevision=initial.selection.revision;
+ const removed=await api('ranking/selection',{year,group:groupId,action:'remove',keys,revision:oldRevision});assert.equal(removed.changed,keys.length);
+ const after=(await api('state?view=ranking&year='+year+'&page=2')).rankingSummary,g=after.groups.find(g=>g.id===groupId);assert.ok(g.rows.every(r=>!keys.includes(r.origin+':'+r.id)));assert.ok(g.available.filter(r=>keys.includes(r.origin+':'+r.id)).every(r=>r.included===false));assert.equal(protectedRows(),protectedBeforeSelection);
+ await api('ranking/selection',{year,group:groupId,action:'add',keys,revision:oldRevision},409);
+ await api('ranking/selection',{year,group:groupId,action:'add',keys,revision:after.selection.revision});
+ const restored=(await api('state?view=ranking&year='+year)).rankingSummary;assert.deepEqual(restored.groups.find(g=>g.id===groupId).rows,snapshotSummary.groups.find(g=>g.id===groupId).rows);assert.equal(protectedRows(),protectedBeforeSelection);
+}
+let preferences=(await api('state?view=ranking&year='+year)).rankingSummary.selection;
+await api('ranking/selection',{year,group:'numbers',action:'remove',keys:['collected:'+thirtySix.id],revision:preferences.revision},400);
+const simultaneous=await Promise.all([['numbers','collected:'+fifteen.id],['thirtySix','collected:'+thirtySix.id]].map(async([group,key])=>{const response=await fetch(base+'/api/ranking/selection',{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({year,group,action:'remove',keys:[key],revision:preferences.revision})});return response.status;}));assert.deepEqual(simultaneous.sort(),[200,409]);
+for(const groupId of ['numbers','thirtySix']){const state=(await api('state?view=ranking&year='+year)).rankingSummary,keys=state.groups.find(g=>g.id===groupId).available.filter(r=>!r.included).map(r=>r.origin+':'+r.id);if(keys.length)await api('ranking/selection',{year,group:groupId,action:'add',keys,revision:state.selection.revision});}
+assert.equal(protectedRows(),protectedBeforeSelection);
+await api('auth/login',{username:'qa-viewer',password:'Reset-local-only-password-9276'});assert.ok((await api('state?view=ranking&year='+year)).rankingSummary.groups.length===3);await api('ranking/selection',{year,group:'numbers',action:'remove',keys:['collected:'+fifteen.id],revision:''},403);assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');writeFileSync(process.env.QA_CLOCK_FILE,'');db.close();
+console.log('PASS: authenticated ranking groups, shared current issue, custom/collected inclusion, all-history stats independent of pagination, strict streaks, live draw/correction refresh, immutable originals/plans/schedules, invalid years, viewer read access, reversible persisted group membership, stale/concurrent write protection and unchanged non-ranking state. No external sends.');
