@@ -1,4 +1,5 @@
 import {list,run} from './db';
+import {quickHistoryIssues} from './quick-combination.mjs';
 import {validateCombination,computeCombination,combinationMessage} from './combination.mjs';
 import {rulesWithReference} from './number-reference.mjs';
 import {nextScheduledRun} from './schedule.mjs';
@@ -25,7 +26,7 @@ function nextCalculation(plan:any,at=Date.now()){return plan.calculation.mode===
 function tomorrow(plan:any){const day=beijingDate(Date.now()+86400000);return new Date(day+'T'+(plan.calculation.mode==='daily'?plan.calculation.time:'00:00')+':00+08:00').toISOString();}
 const sourceIds=(p:any)=>collectedSourceIds(p) as string[];
 const customIds=(p:any)=>[...new Set<string>([...(p.baseMode==='custom'?[p.baseCustomMaterialId]:[]),...p.steps.filter((s:any)=>s.type==='custom').map((s:any)=>s.materialId)])];
-const algorithm=(p:any)=>({year:p.year,baseMode:p.baseMode||(p.baseNumbers.length?'manual':'all'),baseSourceId:p.baseSourceId||'',...(p.baseMode==='custom'?{baseCustomMaterialId:p.baseCustomMaterialId||''}:{}),baseNumbers:p.baseNumbers,steps:p.steps});
+const algorithm=(p:any)=>({year:p.year,baseMode:p.baseMode||(p.baseNumbers.length?'manual':'all'),baseSourceId:p.baseSourceId||'',...(p.baseMode==='custom'?{baseCustomMaterialId:p.baseCustomMaterialId||''}:{}),baseNumbers:p.baseNumbers,steps:p.steps,...p.baseSelection?{baseSelection:p.baseSelection}:{}});
 async function combinationAlgorithm(plan:any){const ids=customIds(plan);if(!ids.length)return algorithm(plan);const values=await customMaterialSummaries();return {...algorithm(plan),customRules:ids.sort().map(id=>{const p=values.find(p=>p.id===id);return {id,ruleKey:p?materialRuleKey(p):null};})};}
 export async function saveCombination(input:any,canManagePush:boolean){
  const value=validateCombination(input),id=input.id||crypto.randomUUID(),old=input.id?await findPlan(input.id):null;
@@ -115,12 +116,13 @@ async function recoveryState(plan:any,result:any,persist:boolean){
 }
 async function execute(plan:any,input:any={},persist=true,refresh=true){
  for(const id of customIds(plan))await refreshCustomMaterial(id);
+ const selectionPlan=input.automatic&&plan.workspace==='quick'?{...plan,targetMode:'latest'}:plan;
  let period:any,before:any=null;
- try{period=await target(plan,input);if(input.automatic&&plan.targetMode==='common'){const current=await todayPeriod(plan);if(current.issue&&!current.drawn&&(!period.date||period.date<current.date||Number(period.issue)<Number(current.issue)))period=current;}before=await storedCalculation(plan,period);}catch(e:any){if(e.code!=='NO_PERIOD')throw e;}
+ try{period=await target(selectionPlan,input);if(input.automatic&&plan.targetMode==='common'){const current=await todayPeriod(plan);if(current.issue&&!current.drawn&&(!period.date||period.date<current.date||Number(period.issue)<Number(current.issue)))period=current;}before=await storedCalculation(plan,period);}catch(e:any){if(e.code!=='NO_PERIOD')throw e;}
  const onlyMissing=input.onlyMissing||plan.calculation.refreshSources===false;
  const missing=before&&(!input.automatic||period?.date===beijingDate()&&!period?.drawn)?[...new Set<string>(before.trace.filter((t:any)=>t.error&&t.sourceId).map((t:any)=>t.sourceId))]:sourceIds(plan);
  const collection=refresh?await refreshSources(plan,onlyMissing?missing:sourceIds(plan),period?.issue||undefined,!!input.automatic):[];
- try{if(!period||!onlyMissing)period=await target(plan,input);}catch(e:any){if(e.code!=='NO_PERIOD')throw e;return recoveryState(plan,await saveFailure(plan,[e.message],collection,persist),persist);}
+ try{if(!period||!onlyMissing)period=await target(selectionPlan,input);}catch(e:any){if(e.code!=='NO_PERIOD')throw e;return recoveryState(plan,await saveFailure(plan,[e.message],collection,persist),persist);}
  if(input.automatic&&plan.targetMode==='common'){const current=await todayPeriod(plan);if(current.issue&&!current.drawn&&(!period.date||period.date<current.date||Number(period.issue)<Number(current.issue)))period=current;}
  const computed=await storedCalculation(plan,period);
  if(input.automatic&&(period.date!==beijingDate()||period.drawn)){computed.status='blocked';computed.numbers=[];computed.total=null;computed.errors.push('尚无当天待开奖期数的完整资料，不使用已开奖或旧期资料代替');}
@@ -136,11 +138,11 @@ async function periodReport(plan:any,snapshots:any[]){
  const predictions=ids.length?await list(`SELECT * FROM predictions WHERE year=? AND deleted_batch IS NULL AND source_id IN (${ids.map(()=>'?').join(',')})`,plan.year,...ids):[];
  const failures=await list("SELECT source_id,year,issue FROM collection_periods WHERE year=? AND status='failed' AND deleted_batch IS NULL",plan.year);
  const reference=await setting('numberReference:'+plan.year,null),rules=await setting('rules'),effective=rulesWithReference(rules.years?.[plan.year]||{},reference),algorithmHash=await hash(await combinationAlgorithm(plan));
- const custom=await customCombinationData(customIds(plan),plan.year),cap=Math.min(366,Math.max(0,...draws.map(d=>+d.issue))+1),current=snapshots.filter(r=>r.algorithmHash===algorithmHash),selection=selectCombinationHistory(plan,[...predictions.map(p=>p.issue),...failures.filter(f=>ids.includes(f.source_id)).map(f=>f.issue),...custom.records.filter(r=>+r.issue<=cap).map(r=>r.issue),...current.map(r=>r.issue),...(!ids.length?draws.map(d=>d.issue):[])],predictions,sources,failures),issues=selection.issues,included=new Set(issues);
+ const custom=await customCombinationData(customIds(plan),plan.year),cap=Math.min(366,Math.max(0,...draws.map(d=>+d.issue))+1),current=snapshots.filter(r=>r.algorithmHash===algorithmHash),selection=selectCombinationHistory(plan,[...predictions.map(p=>p.issue),...failures.filter(f=>ids.includes(f.source_id)).map(f=>f.issue),...custom.records.filter(r=>+r.issue<=cap).map(r=>r.issue),...current.map(r=>r.issue),...(!ids.length?draws.map(d=>d.issue):[])],predictions,sources,failures),issues=quickHistoryIssues(plan,selection.issues,current),included=new Set(issues);
  const grouped=new Map<string,any[]>();for(const p of predictions){if(!grouped.has(p.issue))grouped.set(p.issue,[]);grouped.get(p.issue)!.push(p);}
  const available=new Map(issues.map(issue=>[issue,computeCombination(plan,{year:plan.year,issue,predictions:grouped.get(issue)||[],sources,rules:effective,failures:failures.filter(f=>f.issue===issue),customMaterials:custom.materials,customRecords:custom.records,draw:draws.find(d=>d.issue===issue)})]));
  const eligible=current.filter(r=>included.has(r.issue)).map(r=>{const now=available.get(r.issue);return now?.status==='blocked'?{...r,status:'blocked',numbers:[],total:null,errors:now.errors,trace:now.trace}:r;});
- const backtests=issues.filter(issue=>!eligible.some(r=>r.issue===issue&&r.status==='complete')).map(issue=>({...available.get(issue),id:'backtest:'+plan.id+':'+issue,planId:plan.id,planName:plan.name,algorithmHash,createdAt:stamp(),historical:true,backtest:true,collection:[]}));
+ const backtests=issues.filter(issue=>(plan.workspace!=='quick'||plan.quickScope!=='available'||available.get(issue)?.status==='complete')&&!eligible.some(r=>r.issue===issue&&r.status==='complete')).map(issue=>({...available.get(issue),id:'backtest:'+plan.id+':'+issue,planId:plan.id,planName:plan.name,algorithmHash,createdAt:stamp(),historical:true,backtest:true,collection:[]}));
  return {...combinationPeriodReport([...eligible,...backtests],draws),historyScope:selection.scope};
 }
 export async function combinationReportFor(id:string){
