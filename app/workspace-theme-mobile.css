@@ -1,0 +1,491 @@
+/* Mobile presentation only: the existing drawer, navigation and table behaviors remain shared. */
+@media (max-width: 768px) {
+  body.workspace-theme {
+    font-size: 16px;
+  }
+
+  .workspace-theme .app-shell .page-content {
+    padding-top: 20px;
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+
+  .workspace-theme .app-shell .topbar {
+    height: 60px;
+    padding: 0 14px;
+    background: #ffffff;
+    border-bottom-color: var(--line);
+    box-shadow: 0 3px 16px #3865a30a;
+  }
+
+  .workspace-theme .app-shell .mobile-menu-trigger {
+    color: var(--primary);
+    background: var(--primary-soft);
+    border-color: #d8e8ff;
+    border-radius: 10px;
+  }
+
+  .workspace-theme .app-shell .breadcrumb {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .breadcrumb > span {
+    color: var(--ink);
+    font-size: 14px;
+  }
+
+  .workspace-theme .app-shell .sidebar {
+    background: linear-gradient(180deg, #f1f7ff 0%, #f9fbff 100%);
+    color: #526b8d;
+    border-right: 1px solid #d9e7fa;
+    box-shadow: 12px 0 40px #1d4c8c24;
+  }
+
+  .workspace-theme .app-shell .mobile-menu-backdrop {
+    background: #203b624d;
+    backdrop-filter: blur(3px);
+  }
+
+  .workspace-theme .app-shell .mobile-menu-close {
+    color: #5d7597;
+    background: #e6f0ff;
+    border: 1px solid #dce8f9;
+    border-radius: 10px;
+  }
+
+  .workspace-theme .app-shell .sidebar .brand {
+    color: var(--ink);
+    font-size: 17px;
+  }
+
+  .workspace-theme .app-shell .sidebar .brandmark {
+    color: var(--primary);
+    background: #ffffff;
+    border-color: #c4dcff;
+    box-shadow: 0 3px 8px #3982e00c;
+  }
+
+  .workspace-theme .app-shell .sidebar .brand small,
+  .workspace-theme .app-shell .sidebar .nav-label {
+    color: #7890af;
+  }
+
+  .workspace-theme .app-shell .sidebar .nav-label {
+    font-size: 12px;
+    letter-spacing: 0.7px;
+  }
+
+  .workspace-theme .app-shell .sidebar nav button {
+    color: #4b6385;
+    font-size: 14px;
+    border-radius: 9px;
+    min-height: 46px;
+  }
+
+  .workspace-theme .app-shell .sidebar nav button:hover {
+    background: #e7f1ff;
+    color: var(--primary);
+  }
+
+  .workspace-theme .app-shell .sidebar nav button.active,
+  .workspace-theme .app-shell .sidebar nav button.active:hover {
+    color: #ffffff;
+    background: var(--primary);
+    box-shadow: 0 4px 10px #1677ff1a;
+  }
+
+  .workspace-theme .app-shell .sidebar nav button b {
+    color: #6383ad;
+    background: #e2edfc;
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .sidebar nav button.active b {
+    color: #ffffff;
+    background: #ffffff26;
+  }
+
+  .workspace-theme .app-shell .sidebar .self-submenu {
+    border-left-color: #d6e5fa;
+  }
+
+  .workspace-theme .app-shell .sidebar .self-submenu a {
+    color: #6882a3;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .workspace-theme .app-shell .sidebar .self-submenu a.active,
+  .workspace-theme .app-shell .sidebar .self-submenu a:hover {
+    color: var(--primary);
+    background: #e6f0ff;
+  }
+
+  .workspace-theme .app-shell .sidebar .workspace-folder-menu,
+  .workspace-theme .app-shell .sidebar .self-kill-folder,
+  .workspace-theme .app-shell .sidebar .workspace-tree-children {
+    border-color: #d6e5fa;
+  }
+
+  .workspace-theme .app-shell .sidebar .sidebar-search {
+    color: #7b91af;
+    background: #ffffff;
+    border: 1px solid #dce8f7;
+    border-radius: 9px;
+    margin-bottom: 10px;
+  }
+
+  .workspace-theme .app-shell .sidebar .sidebar-search input {
+    color: var(--ink);
+  }
+
+  .workspace-theme .app-shell .sidebar .sidebar-search input::placeholder {
+    color: #879bb7;
+  }
+
+  .workspace-theme .app-shell .sidebar .workspace-tree-row > a,
+  .workspace-theme .app-shell .sidebar .workspace-tree-children > a,
+  .workspace-theme .app-shell .sidebar .workspace-tree-loose > a {
+    color: #627d9f;
+    font-size: 14px;
+  }
+
+  .workspace-theme .app-shell .sidebar .workspace-tree-children > a.selected,
+  .workspace-theme .app-shell .sidebar .workspace-tree-children > a:hover,
+  .workspace-theme .app-shell .sidebar .workspace-tree-loose > a.selected,
+  .workspace-theme .app-shell .sidebar .workspace-tree-loose > a:hover {
+    background: #e5efff;
+    color: var(--primary);
+  }
+
+  .workspace-theme .app-shell .sidebar .sidebar-bottom {
+    border-top-color: #d9e6f8;
+    color: var(--ink);
+    background: #f4f8ff;
+  }
+
+  .workspace-theme .app-shell .sidebar .sidebar-bottom small {
+    color: #7f94b1;
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .sidebar .avatar {
+    color: var(--primary);
+    background: #dfecff;
+  }
+
+  .workspace-theme .app-shell .sidebar .sidebar-bottom .icon-button {
+    color: #7890af;
+  }
+
+  .workspace-theme .app-shell .sidebar nav::-webkit-scrollbar-thumb,
+  .workspace-theme .app-shell .sidebar .workspace-tree::-webkit-scrollbar-thumb {
+    background: #c0d5ef;
+  }
+
+  .workspace-theme .app-shell .mobile-bottom-nav {
+    background: #fffffff5;
+    border-top-color: #dce8fa;
+    box-shadow: 0 -4px 20px #2e68ab0b;
+    padding-left: 4px;
+    padding-right: 4px;
+    gap: 2px;
+  }
+
+  .workspace-theme .app-shell .mobile-bottom-nav button {
+    color: #6e85a5;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+
+  .workspace-theme .app-shell .mobile-bottom-nav button[aria-current="page"] {
+    color: var(--primary);
+    background: #eaf3ff;
+  }
+
+  .workspace-theme .app-shell .page-heading {
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .workspace-theme .app-shell .page-heading h1 {
+    font-size: 25px;
+    letter-spacing: -0.4px;
+    line-height: 1.45;
+  }
+
+  .workspace-theme .app-shell .page-heading p {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .workspace-theme .app-shell .eyebrow {
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+
+  .workspace-theme .app-shell .heading-actions .primary,
+  .workspace-theme .app-shell .heading-actions .secondary,
+  .workspace-theme .app-shell .primary,
+  .workspace-theme .app-shell .secondary,
+  .workspace-theme .app-shell .danger-button {
+    font-size: 14px;
+    min-height: 44px;
+  }
+
+  .workspace-theme .app-shell .heading-actions .primary {
+    width: auto;
+    padding: 0 12px;
+    gap: 7px;
+  }
+
+  .workspace-theme .app-shell .panel {
+    border-color: var(--line);
+    border-radius: 12px;
+    box-shadow: 0 3px 12px #356cac06;
+  }
+
+  .workspace-theme .app-shell .panel-heading {
+    padding: 17px 15px;
+    gap: 12px;
+  }
+
+  .workspace-theme .app-shell .panel-heading h2 {
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  .workspace-theme .app-shell .panel-heading p,
+  .workspace-theme .app-shell .filters > select {
+    font-size: 14px;
+  }
+
+  .workspace-theme .app-shell .source-grid {
+    gap: 12px;
+  }
+
+  .workspace-theme .app-shell .source-card {
+    border-color: #dfe9f7;
+    border-radius: 12px;
+    background: #ffffff;
+  }
+
+  .workspace-theme .app-shell .source-card h3 {
+    font-size: 16px;
+  }
+
+  .workspace-theme .app-shell .source-card-footer .text-link {
+    font-size: 14px;
+  }
+
+  .workspace-theme .app-shell .source-url,
+  .workspace-theme .app-shell .cell-sub,
+  .workspace-theme .app-shell .form-hint {
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .workspace-theme .app-shell .ranking-summary-panel tbody tr,
+  .workspace-theme .app-shell .records-table tbody tr {
+    border-color: #dfe9f7;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px #285d9705;
+  }
+
+  .workspace-theme .app-shell .ranking-summary-panel tbody td,
+  .workspace-theme .app-shell .records-table tbody td {
+    font-size: 14px;
+  }
+
+  .workspace-theme .app-shell .ranking-summary-panel td::before,
+  .workspace-theme .app-shell .records-table td[data-label]::before,
+  .workspace-theme .app-shell .cost-table td::before {
+    color: #7c91ae;
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .table-scroll:has(table:not(.records-table)):not(.ranking-summary-panel .table-scroll)::before {
+    color: #7b91b0;
+    background: #f2f7ff;
+    border-bottom: 1px solid #e5edf9;
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .table-footer {
+    color: #7c91ae;
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .modal-cover {
+    background: #203b6252;
+  }
+
+  .workspace-theme .app-shell .modal,
+  .workspace-theme .app-shell .modal.wide {
+    border-color: #dce8f8;
+    border-radius: 16px;
+    box-shadow: 0 16px 55px #1c477b29;
+  }
+
+  .workspace-theme .app-shell .modal > header {
+    background: #ffffff;
+    border-bottom-color: #e4ecf8;
+  }
+
+  .workspace-theme .app-shell .modal header h2 {
+    font-size: 19px;
+  }
+
+  .workspace-theme .app-shell .modal header p {
+    color: #7d92af;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .workspace-theme .app-shell .modal-footer {
+    background: #f8fbff;
+    border-top-color: #e4ecf8;
+  }
+
+  .workspace-theme .app-shell .modal-footer > span {
+    color: #8296b2;
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .modal-body label,
+  .workspace-theme .app-shell .cost-form label,
+  .workspace-theme .app-shell .self-filters label,
+  .workspace-theme .app-shell .ranking-summary-heading label {
+    font-size: 14px;
+  }
+
+  .workspace-theme .app-shell .tech-overview {
+    padding: 0;
+  }
+
+  .workspace-theme .app-shell .tech-masthead {
+    padding: 22px 18px;
+    border-radius: 12px;
+  }
+
+  .workspace-theme .app-shell .tech-masthead h2 {
+    font-size: 24px;
+    line-height: 1.45;
+  }
+
+  .workspace-theme .app-shell .tech-masthead p,
+  .workspace-theme .app-shell .tech-kicker {
+    font-size: 12px;
+    letter-spacing: 0.7px;
+  }
+
+  .workspace-theme .app-shell .tech-hero-art {
+    display: none;
+  }
+
+  .workspace-theme .app-shell .tech-metrics {
+    gap: 10px;
+  }
+
+  .workspace-theme .app-shell .tech-metrics article {
+    padding: 16px 13px;
+    border-radius: 11px;
+  }
+
+  .workspace-theme .app-shell .tech-metrics article > div {
+    font-size: 14px;
+    gap: 8px;
+    line-height: 1.6;
+  }
+
+  .workspace-theme .app-shell .tech-metrics article > div > span {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .workspace-theme .app-shell .tech-metrics article > div > svg {
+    position: static;
+    width: 20px;
+    height: 20px;
+    padding: 5px;
+    flex-shrink: 0;
+  }
+
+  .workspace-theme .app-shell .tech-metrics article > strong {
+    font-size: 27px;
+    margin-top: 14px;
+  }
+
+  .workspace-theme .app-shell .tech-metrics article > p {
+    font-size: 12px;
+    line-height: 1.8;
+    margin-top: 8px;
+  }
+
+  .workspace-theme .app-shell .tech-panel {
+    padding: 17px 14px;
+    border-radius: 12px;
+  }
+
+  .workspace-theme .app-shell .tech-panel-heading h3 {
+    font-size: 16px;
+  }
+
+  .workspace-theme .app-shell .tech-panel-heading > div > span,
+  .workspace-theme .app-shell .tech-panel-heading > span,
+  .workspace-theme .app-shell .tech-chart-legend,
+  .workspace-theme .app-shell .tech-chart-legend label,
+  .workspace-theme .app-shell .tech-chart-footer > span,
+  .workspace-theme .app-shell .tech-chart-footer button {
+    font-size: 12px;
+  }
+
+  .workspace-theme .app-shell .tech-chart-controls select {
+    font-size: 14px;
+  }
+
+  .workspace-theme .app-shell .tech-chart-legend {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .workspace-theme .app-shell .tech-status-list > div {
+    font-size: 14px;
+  }
+
+  .workspace-theme .account-login > section:first-child {
+    padding: 27px 24px;
+  }
+
+  .workspace-theme .account-login-intro h1 {
+    font-size: 29px;
+    letter-spacing: 1px;
+  }
+
+  .workspace-theme .account-login-form {
+    padding: 32px 24px calc(32px + env(safe-area-inset-bottom));
+  }
+
+  .workspace-theme .account-login-form h2 {
+    font-size: 26px;
+  }
+
+  .workspace-theme .account-login-form label {
+    font-size: 14px;
+  }
+
+  .workspace-theme .account-login-form p,
+  .workspace-theme .account-login-form > div > small {
+    font-size: 12px;
+    line-height: 1.85;
+  }
+
+  .workspace-theme .account-login-form input,
+  .workspace-theme .account-login-form .primary {
+    font-size: 16px;
+    min-height: 46px;
+  }
+}

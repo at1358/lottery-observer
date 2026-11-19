@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./mobile.css";
+import "./workspace-theme.css";
+import "./workspace-theme-mobile.css";
 
 export const viewport: Viewport = {width:'device-width',initialScale:1,viewportFit:'cover'};
 
@@ -20,7 +22,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased workspace-theme">{children}</body>
     </html>
   );
 }

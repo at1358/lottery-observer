@@ -1,0 +1,246 @@
+/* Shared presentation layer. Success/error colors and archived source content stay semantic. */
+:root{--bg:#edf4ff;--paper:#fff;--ink:#172b4d;--muted:#71839e;--line:#dfe9f7;--side:#f5f9ff;--teal:#16845e;--teal-light:#eaf7f0;--amber:#b77715;--primary:#1677ff;--primary-soft:#eaf3ff;--surface-shadow:0 3px 16px #2359a008}
+body.workspace-theme{background:var(--bg);color:var(--ink);font-size:16px;font-family:Inter,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+.workspace-theme button,.workspace-theme a,.workspace-theme input,.workspace-theme select,.workspace-theme textarea{outline-offset:3px}
+.workspace-theme :focus-visible{outline:2px solid #1677ff;box-shadow:0 0 0 4px #1677ff14}
+.workspace-theme .app-shell .primary,.workspace-theme .account-login-form .primary{background:var(--primary);border-color:var(--primary);box-shadow:0 3px 7px #1677ff1b;color:#fff;font-size:14px;min-height:38px;border-radius:7px}
+.workspace-theme .app-shell .primary:hover,.workspace-theme .account-login-form .primary:hover{background:#0966e9;border-color:#0966e9}
+.workspace-theme .app-shell .secondary{color:#506788;border-color:#d6e3f6;background:#fff;font-size:14px;min-height:38px;border-radius:7px}
+.workspace-theme .app-shell .secondary:hover{background:#f2f7ff;border-color:#a9c9f8}
+.workspace-theme .app-shell .text-link{color:var(--primary);font-size:13px}
+.workspace-theme .app-shell .text-link.danger-text{color:#d84e61}
+.workspace-theme .app-shell .icon-button:hover{background:#e9f2ff;color:var(--primary)}
+.workspace-theme .app-shell .muted{color:var(--muted)}
+.workspace-theme .app-shell .danger-text{color:#d84e61!important}
+.workspace-theme .app-shell .badge{font-size:12px;border-radius:5px}
+.workspace-theme .app-shell .badge.win{color:#16845e;background:#eaf7ef;border-color:#ccebd9}
+.workspace-theme .app-shell .badge.loss,.workspace-theme .app-shell .badge.collection_failed{color:#cf4d60;background:#fff0f2;border-color:#f6d6dd}
+.workspace-theme .app-shell .badge.pending{color:#4e7ab6;background:#eff5ff;border-color:#dbe8fc}
+.workspace-theme .app-shell .badge.review{color:#a87019;background:#fff7e7;border-color:#f3e1bd}
+
+/* Workspace frame */
+.workspace-theme .app-shell .sidebar{background:linear-gradient(180deg,#f3f8ff 0%,#f9fbff 70%,#edf5ff 100%);border-right:1px solid #d7e5f8;color:#526a8c;padding-top:24px;box-shadow:2px 0 12px #2359a005}
+.workspace-theme .app-shell .brand{color:#17365d;font-size:19px;letter-spacing:0;padding:0 7px}
+.workspace-theme .app-shell .brandmark{color:var(--primary);border:1px solid #c9dfff;background:linear-gradient(145deg,#fff,#deedff);border-radius:10px;font-family:inherit;font-weight:700;font-size:23px;box-shadow:0 3px 8px #1677ff0c}
+.workspace-theme .app-shell .brand small{color:#7e9abd;letter-spacing:1.7px;font-size:9px}
+.workspace-theme .app-shell .workspace{background:#ffffffa8;border-color:#d9e7f8;color:#315681;margin:24px 4px 23px;border-radius:9px}
+.workspace-theme .app-shell .workspace-icon{background:#e5f0ff;color:var(--primary)}
+.workspace-theme .app-shell .workspace small,.workspace-theme .app-shell .workspace>svg{color:#88a0bd}
+.workspace-theme .app-shell .nav-label{color:#8ca0bb;font-size:12px;letter-spacing:1px;margin-left:13px}
+.workspace-theme .app-shell .sidebar nav button{font-size:14px;color:#4a6385;min-height:41px;padding:10px 12px;border-radius:7px;gap:10px}
+.workspace-theme .app-shell .sidebar nav button:hover{background:#e6f0ff;color:var(--primary)}
+.workspace-theme .app-shell .sidebar nav button.active{color:#fff;background:linear-gradient(100deg,#1685ff,#1677ff);box-shadow:0 4px 10px #1677ff20}
+.workspace-theme .app-shell .sidebar nav button b{background:#e3edfb;color:#547aa8;font-size:11px}
+.workspace-theme .app-shell .sidebar nav button.active b{background:#ffffff30;color:#fff}
+.workspace-theme .app-shell .sidebar nav .nav-dot{background:#25b287}
+.workspace-theme .app-shell .sidebar .sidebar-search{background:#fff;border:1px solid #dce8f8;border-radius:7px;margin:0 4px 9px;color:#8ca4c3;padding:9px}
+.workspace-theme .app-shell .sidebar-search input{color:#42628c;font-size:13px}
+.workspace-theme .app-shell .sidebar-search input::placeholder{color:#8ca0ba}
+.workspace-theme .app-shell .workspace-folder-menu,.workspace-theme .app-shell .source-nav-label,.workspace-theme .app-shell .sidebar-bottom{border-color:#dce7f5}
+.workspace-theme .app-shell .workspace-tree p,.workspace-theme .app-shell .workspace-tree-loose>small{color:#8b9fbb;font-size:12px}
+.workspace-theme .app-shell .workspace-tree-row>a,.workspace-theme .app-shell .workspace-tree-children>a,.workspace-theme .app-shell .workspace-tree-loose>a{color:#5b7597;font-size:12px}
+.workspace-theme .app-shell .workspace-tree-row>a small{color:#8aa1bf;font-size:11px}
+.workspace-theme .app-shell .sidebar nav .workspace-tree-row>button{color:#7e9abb}
+.workspace-theme .app-shell .workspace-tree-children{border-left-color:#d6e5f7}
+.workspace-theme .app-shell .workspace-tree-children>a:hover,.workspace-theme .app-shell .workspace-tree-children>a.selected,.workspace-theme .app-shell .workspace-tree-loose>a:hover{background:#e4efff;color:#1677ff}
+.workspace-theme .app-shell .self-submenu{border-color:#d6e5f7}
+.workspace-theme .app-shell .self-submenu a{color:#5e7b9f;font-size:12px}
+.workspace-theme .app-shell .self-submenu a:hover,.workspace-theme .app-shell .self-submenu a.selected{background:#e3efff;color:var(--primary)}
+.workspace-theme .app-shell .self-submenu a small{color:#8aa0ba}
+.workspace-theme .app-shell .self-menu-toggle{color:#7b96b8}
+.workspace-theme .app-shell .sidebar-bottom{color:#34577f;font-size:14px}
+.workspace-theme .app-shell .sidebar-bottom small{color:#8198b3;font-size:12px}
+.workspace-theme .app-shell .sidebar-bottom .icon-button{color:#7b96b8}
+.workspace-theme .app-shell .avatar{background:#e0edff;color:#1677ff;border:1px solid #cee1fb}
+.workspace-theme .app-shell .sidebar nav,.workspace-theme .app-shell .workspace-tree,.workspace-theme .app-shell .self-submenu{scrollbar-color:#c2d5ee transparent}
+.workspace-theme .app-shell .sidebar nav::-webkit-scrollbar-thumb,.workspace-theme .app-shell .workspace-tree::-webkit-scrollbar-thumb{background:#c2d5ee}
+.workspace-theme .app-shell .topbar{height:68px;border-color:#dfE9f7;box-shadow:0 2px 12px #315b9410;padding:0 28px}
+.workspace-theme .app-shell .breadcrumb{font-size:14px;color:#91a1b8;gap:10px}
+.workspace-theme .app-shell .breadcrumb span{color:#36557d;font-weight:600}
+.workspace-theme .app-shell .topbar-right{font-size:12px;color:#8a9bb2}
+.workspace-theme .app-shell .top-divider{background:#e0e9f6}
+.workspace-theme .app-shell .page-content{padding:26px 28px 16px}
+.workspace-theme .app-shell .page-heading{margin-bottom:23px}
+.workspace-theme .app-shell h1{font-size:28px;letter-spacing:-.5px;font-weight:700;color:#19385f}
+.workspace-theme .app-shell .eyebrow{font-size:10px;letter-spacing:1.7px;color:#88a0bf;margin-bottom:7px}
+.workspace-theme .app-shell .page-heading p{font-size:14px;color:#7c8faa;line-height:1.8}
+.workspace-theme .app-shell.view-overview .page-heading .eyebrow{display:none}
+.workspace-theme .app-shell.view-overview .page-heading{margin-bottom:18px}
+
+/* Reusable cards, forms and tables */
+.workspace-theme .app-shell .panel{border-color:var(--line);border-radius:11px;box-shadow:var(--surface-shadow);margin-bottom:20px}
+.workspace-theme .app-shell .panel-heading{padding:20px 22px}
+.workspace-theme .app-shell .panel-heading h2{font-size:16px;font-weight:650;color:#23436c}
+.workspace-theme .app-shell .panel-heading h2>svg{color:var(--primary)}
+.workspace-theme .app-shell .panel-heading p{font-size:12px;color:#8192ab;line-height:1.8}
+.workspace-theme .app-shell .filters{gap:10px}
+.workspace-theme .app-shell .search-field,.workspace-theme .app-shell .issue-filter{border-color:#dae5f5;background:#fbfdff;border-radius:7px;min-height:38px;color:#8aa0bd}
+.workspace-theme .app-shell .search-field input{font-size:14px;color:#416185}
+.workspace-theme .app-shell .filters>select{font-size:13px;min-height:38px;max-width:180px;border-color:#d9e5f5;background-color:#fff;color:#557194}
+.workspace-theme .app-shell .issue-filter input{font-size:13px;width:45px;color:#557194}
+.workspace-theme .app-shell table{font-size:14px}
+.workspace-theme .app-shell thead{background:#f5f8ff;color:#8395b0;font-size:12px}
+.workspace-theme .app-shell th{border-color:#e7eef9;padding-top:13px;padding-bottom:13px;font-weight:500}
+.workspace-theme .app-shell td{border-color:#edf2fa;color:#526c8c;line-height:1.7}
+.workspace-theme .app-shell td strong{color:#2b4d75}
+.workspace-theme .app-shell tbody tr:hover{background:#f8fbff}
+.workspace-theme .app-shell .table-footer{background:#fcfdff;color:#879bb5;font-size:12px;padding:14px 20px}
+.workspace-theme .app-shell .page-jump input{border-color:#d6e3f7;color:#42658e;font-size:14px}
+.workspace-theme .app-shell .settings-form label,.workspace-theme .app-shell .field-grid label,.workspace-theme .app-shell .import-toolbar label,.workspace-theme .app-shell .cost-form label,.workspace-theme .app-shell .directory-toolbar>label{font-size:14px;color:#547194}
+.workspace-theme .app-shell label>input:not([type=checkbox]),.workspace-theme .app-shell label>select,.workspace-theme .app-shell label>textarea,.workspace-theme .app-shell .settings-form>textarea,.workspace-theme .app-shell .bulk-draw>textarea{border-color:#d6e3f5;border-radius:7px;background-color:#fff;color:#355879;font-size:14px;padding:10px 12px;line-height:1.7}
+.workspace-theme .app-shell input::placeholder,.workspace-theme .app-shell textarea::placeholder{color:#9badc6}
+.workspace-theme .app-shell input[type=checkbox]{accent-color:var(--primary);width:16px;height:16px}
+.workspace-theme .app-shell .form-hint{color:#8095b2;font-size:12px;line-height:1.9}
+.workspace-theme .app-shell .cell-sub{font-size:12px;color:#879bb4;line-height:1.8}
+.workspace-theme .app-shell .selection-toolbar{background:#f2f7ff;border-color:#dfeaf9;color:#607e9f;font-size:14px}
+.workspace-theme .app-shell .selection-toolbar>span{color:#7d94b0}
+.workspace-theme .app-shell .source-card,.workspace-theme .app-shell .directory-item{border-color:#e0e9f7;border-radius:9px;background:#fff;transition:border-color .15s,box-shadow .15s}
+.workspace-theme .app-shell .source-card:hover,.workspace-theme .app-shell .directory-item:hover{border-color:#b5d2fa;background:#fbfdff;box-shadow:0 5px 14px #1677ff08}
+.workspace-theme .app-shell .source-card h3{font-size:15px;color:#365a83}
+.workspace-theme .app-shell .source-folder-path{color:#8da1ba;font-size:12px}
+.workspace-theme .app-shell .source-url,.workspace-theme .app-shell .source-meta{color:#839ab8;font-size:12px}
+.workspace-theme .app-shell .source-latest-win,.workspace-theme .app-shell .source-latest-loss{font-size:13px}
+.workspace-theme .app-shell .source-latest-win small,.workspace-theme .app-shell .source-latest-loss small{font-size:12px}
+.workspace-theme .app-shell .source-latest-loss{background:#f5f8ff;border-color:#e1eaf7;color:#7b92b0}
+.workspace-theme .app-shell .source-latest-loss.has-loss{background:#fff3f5;border-color:#f6dbe2;color:#cf4d60}
+.workspace-theme .app-shell .source-latest-loss small{color:inherit}
+.workspace-theme .app-shell .source-card-footer .text-link{font-size:13px}
+.workspace-theme .app-shell .folder-cards>article{border-color:#dce8f8;background:#f7faff;border-radius:9px}
+.workspace-theme .app-shell .folder-card-main{color:#5388c9}
+.workspace-theme .app-shell .folder-card-main strong{font-size:15px;color:#365d8c}
+.workspace-theme .app-shell .folder-card-actions{border-color:#e1ebf9}
+.workspace-theme .app-shell .directory-group-title{border-color:#e1eaf8}
+.workspace-theme .app-shell .directory-group-title h3{font-size:15px;color:#355a85}
+.workspace-theme .app-shell .directory-group-title>span:last-child{font-size:12px;color:#8da0bb}
+.workspace-theme .app-shell .directory-folder{color:#659eea}
+.workspace-theme .app-shell .directory-file{background:#edf4ff;color:#5596ed;border-radius:7px}
+.workspace-theme .app-shell .directory-item strong{font-size:14px;color:#3c5f86}
+.workspace-theme .app-shell .directory-item small{font-size:12px;color:#90a2bb}
+.workspace-theme .app-shell .empty h3{font-size:16px;color:#56769c}
+.workspace-theme .app-shell .empty p{font-size:14px;color:#8a9eb8}
+.workspace-theme .app-shell .empty-icon{background:#eef5ff;border-color:#dfeafb;color:#80a6da}
+.workspace-theme .app-shell .modal-cover{background:#19385e52;backdrop-filter:blur(4px)}
+.workspace-theme .app-shell .modal{border-color:#dce8fa;border-radius:13px;box-shadow:0 25px 90px #11376730}
+.workspace-theme .app-shell .modal>header{background:#fff;padding:22px 25px}
+.workspace-theme .app-shell .modal header h2{font-size:20px;color:#244872;letter-spacing:0}
+.workspace-theme .app-shell .modal header p{font-size:13px;color:#849ab7}
+.workspace-theme .app-shell .modal-footer{background:#f9fbff;border-color:#e1ebf8}
+.workspace-theme .app-shell .modal-footer>span{font-size:12px;color:#8da0bb}
+.workspace-theme .app-shell .source-steps>span.selected,.workspace-theme .app-shell .schedule-mode-options>button.selected{background:#eaf3ff;border-color:#a4c8fb;color:var(--primary)}
+.workspace-theme .app-shell .toast{font-size:14px;border-radius:10px}
+.workspace-theme .app-shell .onboarding{background:#edf5ff;border-color:#d3e4fb}
+.workspace-theme .app-shell .onboarding-icon{background:#dcecff;color:#428be9}
+.workspace-theme .app-shell .onboarding strong{color:#3b699e;font-size:14px}
+.workspace-theme .app-shell .onboarding p{color:#87a0bf;font-size:12px}
+
+/* Light overview: real data, distinct status colors, no decorative metrics. */
+.workspace-theme .app-shell .tech-overview{background:transparent;color:var(--ink);border:0;box-shadow:none;padding:0;margin-bottom:24px;border-radius:0}
+.workspace-theme .app-shell .tech-masthead{min-height:150px;border:1px solid #fff;border-radius:11px;padding:24px 28px;margin-bottom:17px;background:radial-gradient(ellipse at 75% 10%,#bfddff90,transparent 55%),linear-gradient(105deg,#f8fbff,#deedff);overflow:hidden;box-shadow:var(--surface-shadow);gap:16px}
+.workspace-theme .app-shell .tech-masthead::after{content:"";position:absolute;inset:auto -20px -72px 44%;height:170px;pointer-events:none;transform:rotate(-8deg);border:1px solid #fff9;border-radius:50%;box-shadow:0 -20px 0 #ffffff30,0 -40px 0 #ffffff20}
+.workspace-theme .app-shell .tech-masthead>div:first-child{position:relative;z-index:1}
+.workspace-theme .app-shell .tech-kicker{font-size:10px;letter-spacing:1.5px;color:#7b9ac0}
+.workspace-theme .app-shell .tech-kicker i{background:#4c9aff;box-shadow:none}
+.workspace-theme .app-shell .tech-masthead h2{font-size:29px;letter-spacing:.5px;color:#183b67;font-weight:700;margin-top:10px}
+.workspace-theme .app-shell .tech-masthead h2>span{color:#1677ff}
+.workspace-theme .app-shell .tech-masthead p{font-size:14px;color:#839bbb;letter-spacing:1px;margin-top:12px}
+.workspace-theme .app-shell .tech-beacon{border-color:#bed6f7;position:relative;z-index:1;padding-left:20px;min-width:132px}
+.workspace-theme .app-shell .tech-beacon svg{color:#3f91fa;filter:none}
+.workspace-theme .app-shell .tech-beacon>span{font-size:24px;font-weight:650;color:#2c67ad}
+.workspace-theme .app-shell .tech-beacon small{color:#7c9abd;font-size:12px}
+.workspace-theme .app-shell .tech-hero-art{position:relative;width:200px;height:120px;flex-shrink:0;margin-left:auto;z-index:1;perspective:700px}
+.workspace-theme .app-shell .tech-hero-art>div{position:absolute;display:grid;place-items:center;border:1px solid #fff;border-radius:15px;background:linear-gradient(145deg,#fff,#d4e8ff);box-shadow:9px 14px 23px #4c91dd20,inset -3px -3px 8px #c5ddfb70;color:#2988ff;transform:rotateY(-12deg) rotateX(7deg)}
+.workspace-theme .app-shell .tech-hero-art svg{width:33px;height:33px;stroke-width:1.5}
+.workspace-theme .app-shell .tech-hero-art>div{padding:10px;gap:4px;grid-template-rows:1fr auto}
+.workspace-theme .app-shell .tech-hero-art>div>span{font-size:11px;white-space:nowrap;letter-spacing:.5px}
+.workspace-theme .app-shell .tech-art-capture{width:70px;height:78px;left:0;top:28px}
+.workspace-theme .app-shell .tech-art-verify{width:87px;height:94px;left:55px;top:3px;background:linear-gradient(140deg,#3294ff,#156de8)!important;color:#fff!important;box-shadow:10px 17px 30px #1677ff35!important;z-index:2}
+.workspace-theme .app-shell .tech-art-verify svg{width:43px;height:43px}
+.workspace-theme .app-shell .tech-art-chart{width:66px;height:72px;left:131px;top:35px}
+.workspace-theme .app-shell .tech-metrics{gap:15px;margin-bottom:18px}
+.workspace-theme .app-shell .tech-metrics article{background:#fff;border:1px solid #e0eafa;border-radius:10px;padding:18px 16px 17px 72px;box-shadow:var(--surface-shadow)}
+.workspace-theme .app-shell .tech-metric-index{display:none}
+.workspace-theme .app-shell .tech-metrics article>div{color:#6983a6;font-size:14px}
+.workspace-theme .app-shell .tech-metrics article>div svg{position:absolute;left:17px;top:22px;opacity:1;width:24px;height:24px;padding:8px;box-sizing:content-box;background:#f2f7ff;border:1px solid #e5eefb;border-radius:10px}
+.workspace-theme .app-shell .tech-metrics article>strong{font-size:29px;font-weight:650;margin-top:7px;letter-spacing:-.6px;line-height:1.2}
+.workspace-theme .app-shell .tech-metrics article>p{color:#8da0bb;font-size:12px;line-height:1.8;margin-top:7px}
+.workspace-theme .app-shell .tech-metric-line{display:none}
+.workspace-theme .app-shell .tech-chart-layout{gap:17px;margin-bottom:17px}
+.workspace-theme .app-shell .tech-panel{background:#fff;border-color:#dfe9fa;border-radius:11px;box-shadow:var(--surface-shadow);padding:20px}
+.workspace-theme .app-shell .tech-panel-heading>div>span{display:none}
+.workspace-theme .app-shell .tech-panel-heading h3{color:#284c79;font-weight:650;font-size:16px;margin:0;border-left:3px solid #1677ff;padding-left:9px}
+.workspace-theme .app-shell .tech-panel-heading>svg{color:#9bb4d5}
+.workspace-theme .app-shell .tech-panel-heading>span{font-size:12px;color:#8da0bb}
+.workspace-theme .app-shell .tech-chart-controls select{background:#f9fbff;border-color:#dce8f9;color:#6786ad;font-size:12px;max-width:120px;height:34px;padding:6px 10px}
+.workspace-theme .app-shell .tech-chart-legend{color:#7c94b5;font-size:13px;margin-top:22px;gap:16px}
+.workspace-theme .app-shell .tech-chart-legend label{font-size:12px}
+.workspace-theme .app-shell .tech-chart-legend input{accent-color:#1677ff;width:15px;height:15px}
+.workspace-theme .app-shell .tech-chart-legend i,.workspace-theme .app-shell .tech-status-list i{box-shadow:none}
+.workspace-theme .app-shell .tech-chart-footer{border-color:#edf2fa;padding-top:12px}
+.workspace-theme .app-shell .tech-chart-footer>span{font-size:12px;color:#8a9fbb}
+.workspace-theme .app-shell .tech-chart-footer button{color:#1677ff;font-size:12px}
+.workspace-theme .app-shell .tech-donut-center strong{color:#294c78;font-weight:650;font-size:30px}
+.workspace-theme .app-shell .tech-donut-center span{font-size:12px;color:#8ba0bc}
+.workspace-theme .app-shell .tech-status-list{border-color:#edf2fa;gap:12px 17px}
+.workspace-theme .app-shell .tech-status-list>div{color:#8096b3;font-size:13px}
+.workspace-theme .app-shell .tech-status-list strong{color:#365c8d}
+.workspace-theme .app-shell .tech-donut-empty{border-color:#edf3fb}
+.workspace-theme .app-shell .tech-empty{background:repeating-linear-gradient(0deg,transparent,transparent 47px,#edf3fb 48px,transparent 49px);color:#a4bcdf}
+.workspace-theme .app-shell .tech-empty strong{color:#6f8fb5;font-size:16px}
+.workspace-theme .app-shell .tech-empty p{color:#93a8c2;font-size:14px}
+.workspace-theme .app-shell .tech-panel .recharts-tooltip-item-list{color:#365d8d}
+
+/* Keep all existing finance, calculation and reference content within the same visual system. */
+.workspace-theme .app-shell .combo-intro,.workspace-theme .app-shell .combo-result-hero,.workspace-theme .app-shell .cost-balance,.workspace-theme .app-shell .sim-balance,.workspace-theme .app-shell .reference-hero{background:linear-gradient(110deg,#f8fbff,#e4f0ff);border:1px solid #d8e7fc;color:#254d7c;box-shadow:var(--surface-shadow)}
+.workspace-theme .app-shell .combo-intro h2,.workspace-theme .app-shell .combo-result-hero h3,.workspace-theme .app-shell .reference-hero h2{color:#274e7c}
+.workspace-theme .app-shell .combo-intro p,.workspace-theme .app-shell .combo-result-hero p,.workspace-theme .app-shell .cost-balance p,.workspace-theme .app-shell .sim-balance p,.workspace-theme .app-shell .reference-hero p{color:#7b97b9;font-size:14px}
+.workspace-theme .app-shell .combo-intro>svg,.workspace-theme .app-shell .reference-hero-icon{color:#619fee;border-color:#cbdefb;background:#e6f0ff}
+.workspace-theme .app-shell .cost-balance span,.workspace-theme .app-shell .sim-balance>div>span,.workspace-theme .app-shell .combo-result-hero span,.workspace-theme .app-shell .reference-hero-status small{color:#7899bf;font-size:14px}
+.workspace-theme .app-shell .cost-balance strong,.workspace-theme .app-shell .sim-balance>div>strong{color:#236eca}
+.workspace-theme .app-shell .cost-balance strong.cost-negative{color:#d84e61}
+.workspace-theme .app-shell .combo-result-hero.blocked{background:#fff8e9;border-color:#f0dfb8;color:#a67522}
+.workspace-theme .app-shell .combo-result-hero.blocked span,.workspace-theme .app-shell .combo-result-hero.blocked p,.workspace-theme .app-shell .combo-result-hero.blocked h3{color:#a67522}
+.workspace-theme .app-shell .self-intro{background:linear-gradient(115deg,#f3f8ff,#fff);border-color:#dce8f9}
+.workspace-theme .app-shell .self-intro>div>span,.workspace-theme .app-shell .sim-intro>div>span{color:#85a1c5;font-size:12px}
+.workspace-theme .app-shell .self-intro p,.workspace-theme .app-shell .sim-intro p{font-size:14px;color:#8096b3}
+.workspace-theme .app-shell .ranking-summary-cards a{background:linear-gradient(125deg,#fff,#f1f7ff);border-color:#dce8f9;color:#315b8b;box-shadow:var(--surface-shadow)}
+.workspace-theme .app-shell .ranking-summary-cards a:hover{border-color:#8bb9fa}
+.workspace-theme .app-shell .ranking-summary-cards span{font-size:14px}
+.workspace-theme .app-shell .ranking-summary-cards p{font-size:13px;color:#8ba0bb}
+.workspace-theme .app-shell .self-scope-tabs a,.workspace-theme .app-shell .reference-tabs>button{color:#7c96b5;font-size:14px;border-color:#dce7f6}
+.workspace-theme .app-shell .reference-tabs>button[aria-selected=true]{border-bottom-color:var(--primary);color:var(--primary)}
+.workspace-theme .app-shell .reference-tabs small{background:#eaf3ff;color:#6594cd;font-size:12px}
+.workspace-theme .app-shell .cost-metrics article{border-color:#dfe9f7;box-shadow:var(--surface-shadow)}
+.workspace-theme .app-shell .cost-metrics span,.workspace-theme .app-shell .cost-filters label{color:#7e96b5;font-size:14px}
+.workspace-theme .app-shell .cost-metrics small,.workspace-theme .app-shell .cost-filters>span{color:#8ca2bd;font-size:12px}
+.workspace-theme .app-shell .cost-note,.workspace-theme .app-shell .cost-preview{background:#f1f7ff;border-color:#d8e7fc;color:#5b7da5;font-size:14px}
+.workspace-theme .app-shell .cost-note small{color:#819cbd}
+.workspace-theme .app-shell .cost-start h2{color:#315d8e}
+.workspace-theme .app-shell .cost-start{color:#8ba0bb}
+
+/* Account access shares the light product palette; authentication behavior is unchanged. */
+.workspace-theme .account-login{background:#f4f8ff}
+.workspace-theme .account-login>section:first-child{background:radial-gradient(ellipse at 0% 90%,#d5e9ff,transparent 65%),linear-gradient(135deg,#edf5ff,#dfeeff);color:#3b628f}
+.workspace-theme .account-login-brand{color:#1677ff}
+.workspace-theme .account-login-brand>span{color:#244e80}
+.workspace-theme .account-login-brand small{color:#7c9bc0;font-size:10px}
+.workspace-theme .account-login-intro h1{color:#244c7d;font-weight:650;letter-spacing:2px}
+.workspace-theme .account-login-intro h1 em{color:#1677ff}
+.workspace-theme .account-login-intro p{color:#7e9bbd;font-size:16px}
+.workspace-theme .login-chip{background:#ffffffa0;border-color:#c9defa;color:#5489c5}
+.workspace-theme .login-radar{border-color:#afcff150;color:#7babdf50}
+.workspace-theme .login-radar i{border-color:#93bceb55}
+.workspace-theme .login-radar>span{background:#78b1ff;box-shadow:0 0 15px #1677ff20}
+.workspace-theme .account-login-form h2{color:#244d7c;font-weight:650}
+.workspace-theme .account-login-form p{font-size:14px;color:#8a9db8}
+.workspace-theme .account-login-form label{font-size:14px;color:#6683a8}
+.workspace-theme .account-login-form input{height:46px;font-size:16px;color:#355d8b;border-color:#d0e0f5;border-radius:8px}
+.workspace-theme .account-login-form .primary{height:46px;justify-content:center;gap:12px}
+.workspace-theme .account-login-form .primary>svg{display:none}
+.workspace-theme .account-login-form>div>small{font-size:12px;color:#8ea2bd}
+@media(min-width:769px) and (max-width:1199px){
+ .workspace-theme .app-shell .page-content{padding-left:22px;padding-right:22px}
+ .workspace-theme .app-shell .tech-hero-art{display:none}
+ .workspace-theme .app-shell .tech-masthead{padding:25px}
+ .workspace-theme .app-shell .tech-metrics article{padding:17px 15px 17px 65px}
+ .workspace-theme .app-shell .tech-metrics article>div svg{left:14px;width:23px;height:23px;padding:5px}
+}
