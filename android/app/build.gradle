@@ -1,0 +1,41 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.aifx.observer'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.aifx.observer'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+        buildConfigField 'String', 'HOME_URL', '"http://8.134.37.202/m"'
+    }
+    buildFeatures { buildConfig true }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    def signingFile = providers.environmentVariable('OBSERVER_ANDROID_STORE_FILE').orNull
+    if (signingFile) {
+        signingConfigs {
+            release {
+                storeFile file(signingFile)
+                storePassword providers.environmentVariable('OBSERVER_ANDROID_STORE_PASSWORD').get()
+                keyAlias providers.environmentVariable('OBSERVER_ANDROID_KEY_ALIAS').get()
+                keyPassword providers.environmentVariable('OBSERVER_ANDROID_KEY_PASSWORD').get()
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signingFile) signingConfig signingConfigs.release
+        }
+    }
+    lint { abortOnError true; checkReleaseBuilds true }
+    testOptions { unitTests.includeAndroidResources = true }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
+}

@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">期数采集台</string>
+    <string name="back">返回上一页</string>
+    <string name="refresh">刷新当前页面</string>
+    <string name="more">应用菜单</string>
+    <string name="load_failed">暂时无法打开页面</string>
+    <string name="retry">重新加载</string>
+    <string name="home">返回首页</string>
+</resources>

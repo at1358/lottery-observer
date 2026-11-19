@@ -47,6 +47,14 @@ yarn-error.log*
 /dist-linux/
 /data/
 
+# Android generated files and private signing material
+/android/.gradle/
+/android/**/build/
+/android/local.properties
+/android/signing.properties
+*.jks
+*.keystore
+
 # Deployment helper bytecode
 __pycache__/
 *.pyc
