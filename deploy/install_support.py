@@ -167,6 +167,16 @@ server {{
     if ($period_observer_mobile_target) {{
         return 302 $period_observer_mobile_target$is_args$args;
     }}
+    location ^~ /app-downloads/ {{
+        alias /var/www/period-observer-app/;
+        index index.html;
+        autoindex off;
+        types {{ application/vnd.android.package-archive apk; text/html html; text/plain sha256; }}
+        default_type application/octet-stream;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Cache-Control "no-cache" always;
+        limit_except GET HEAD {{ deny all; }}
+    }}
     location / {{
         proxy_pass http://127.0.0.1:{port};
         proxy_http_version 1.1;

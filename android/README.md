@@ -34,6 +34,12 @@ Android Studio 或 Linux：设置 `JAVA_HOME` / `ANDROID_HOME`，执行 `./gradl
 
 仓库的 `Android build and checks` 工作流会执行测试、Lint 并保存未签名 APK 和报告，不接收签名密钥。下载通过检查的构建产物后，可在本机使用 `build-apk.ps1` 的 `-UnsignedApk 'D:/path/app-release-unsigned.apk'` 参数完成对齐、正式签名及验证；签名仍使用原本的本机配置。
 
+## 服务器下载入口
+
+把已签名的 APK 和本机生成的 SHA-256 校验值传到服务器后，使用 `deploy/publish-android-apk.sh signed.apk SHA256 1.0.0` 发布。脚本检查文件校验值、安装包结构和版本名，仅把 APK、校验值与下载介绍页放入 `/var/www/period-observer-app/`，不上传签名密钥。
+
+下载页为 `/app-downloads/`。现有服务器通过检查后重载 Nginx 新增这个独立静态路径，原站点代理规则保留；后续 Ubuntu / Rocky 部署模板也保留该路径。下载目录禁止目录列表和写请求。相同版本禁止替换为不同文件；更新时应提高应用版本。
+
 以后发布更新：保留包名、保留同一个签名，提高 `versionCode` 并调整 `versionName`，通过检查后分发新 APK。业务网页更新通常不需要重新发布 APK。
 
 ## 验证
