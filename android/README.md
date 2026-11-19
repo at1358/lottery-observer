@@ -32,6 +32,8 @@ APK 与校验文件输出到 `outputs/android-release/`，构建会运行单元�
 
 Android Studio 或 Linux：设置 `JAVA_HOME` / `ANDROID_HOME`，执行 `./gradlew testDebugUnitTest lintRelease assembleDebug`；正式构建使用 `OBSERVER_ANDROID_STORE_FILE`、`OBSERVER_ANDROID_STORE_PASSWORD`、`OBSERVER_ANDROID_KEY_ALIAS`、`OBSERVER_ANDROID_KEY_PASSWORD` 四个环境变量后执行 `assembleRelease`，缺少正式签名时生成的是未签名包，不能作为正式安装包分发。
 
+仓库的 `Android build and checks` 工作流会执行测试、Lint 并保存未签名 APK 和报告，不接收签名密钥。下载通过检查的构建产物后，可在本机使用 `build-apk.ps1` 的 `-UnsignedApk 'D:/path/app-release-unsigned.apk'` 参数完成对齐、正式签名及验证；签名仍使用原本的本机配置。
+
 以后发布更新：保留包名、保留同一个签名，提高 `versionCode` 并调整 `versionName`，通过检查后分发新 APK。业务网页更新通常不需要重新发布 APK。
 
 ## 验证

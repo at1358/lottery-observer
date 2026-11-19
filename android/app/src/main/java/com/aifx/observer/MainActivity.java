@@ -190,6 +190,9 @@ public final class MainActivity extends Activity {
         if (lastBack != 0 && now - lastBack < 2000) finish();
         else { lastBack = now; toast("再按一次返回键退出应用"); }
     }
+    // Android 13+ uses the OnBackInvokedCallback registered in onCreate.
+    // Keep this override exclusively for Android 8–12 and older back buttons.
+    @SuppressLint("GestureBackNavigation")
     @SuppressWarnings("deprecation") @Override public void onBackPressed() { back(); }
     void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_LONG).show(); }
 

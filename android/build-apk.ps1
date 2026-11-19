@@ -1,6 +1,7 @@
 param(
  [Parameter(Mandatory=$true)][string]$JavaHome,
  [Parameter(Mandatory=$true)][string]$SdkRoot,
+ [string]$UnsignedApk,
  [string]$SigningConfig,
  [switch]$CreateSigningKey
 )
@@ -40,10 +41,21 @@ $env:OBSERVER_ANDROID_KEY_ALIAS=$signing.keyAlias
 $env:OBSERVER_ANDROID_KEY_PASSWORD=$signing.keyPassword
 Push-Location $PSScriptRoot
 try{
- & "$PSScriptRoot/gradlew.bat" --no-daemon --console=plain --max-workers=2 --gradle-user-home "$projectRoot/outputs/android-gradle-cache" testDebugUnitTest lintRelease assembleRelease
- if($LASTEXITCODE -ne 0){throw '安卓编译或检查失败。'}
- $apk=Join-Path $PSScriptRoot 'app/build/outputs/apk/release/app-release.apk'
  $verifier=Get-ChildItem -LiteralPath (Join-Path $sdkDirectory 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+ if($UnsignedApk){
+  $inputApk=(Resolve-Path -LiteralPath $UnsignedApk).Path
+  $signingWork=Join-Path $projectRoot 'outputs/android-signing-work'
+  New-Item -ItemType Directory -Force -Path $signingWork | Out-Null
+  $aligned=Join-Path $signingWork 'aligned.apk';$apk=Join-Path $signingWork 'signed.apk'
+  & (Join-Path $verifier.FullName 'zipalign.exe') -f 4 $inputApk $aligned
+  if($LASTEXITCODE -ne 0){throw 'APK 对齐失败。'}
+  & (Join-Path $verifier.FullName 'apksigner.bat') sign --ks $signing.storeFile --ks-key-alias $signing.keyAlias --ks-pass env:OBSERVER_ANDROID_STORE_PASSWORD --key-pass env:OBSERVER_ANDROID_KEY_PASSWORD --out $apk $aligned
+  if($LASTEXITCODE -ne 0){throw '正式 APK 签名失败。'}
+ }else{
+  & "$PSScriptRoot/gradlew.bat" --no-daemon --console=plain --max-workers=2 --gradle-user-home "$projectRoot/outputs/android-gradle-cache" testDebugUnitTest lintRelease assembleRelease
+  if($LASTEXITCODE -ne 0){throw '安卓编译或检查失败。'}
+  $apk=Join-Path $PSScriptRoot 'app/build/outputs/apk/release/app-release.apk'
+ }
  & (Join-Path $verifier.FullName 'apksigner.bat') verify --verbose --print-certs $apk
  if($LASTEXITCODE -ne 0){throw 'APK 签名验证失败。'}
  $outputDirectory=Join-Path $projectRoot 'outputs/android-release'
