@@ -48,6 +48,12 @@ test('period splitting handles year and reverse chronological order',()=>{
  const r=splitPeriods('标题\n2025-097期：资料【1尾】\n正文\n096期：资料【2尾】');
  assert.equal(r.length,2);assert.equal(r[0].explicitYear,2025);assert.equal(r[0].issue,'097');assert.ok(r[0].raw.endsWith('正文'));
 });
+
+test('an unnumbered bracketed record is isolated without inventing an issue or contaminating adjacent 36-number rows',()=>{
+ const first=Array.from({length:36},(_,i)=>String(i+1).padStart(2,'0')).join(' '),other=Array.from({length:36},(_,i)=>String(i+14).padStart(2,'0')).join(' '),raw='324期【36码中特】开0000准\n'+first+'\n期【36码中特】开猴47准\n'+other+'\n322期【36码中特】开猪08准\n'+first;
+ const rows=splitPeriods(raw);assert.deepEqual(rows.map(r=>r.issue),['324','322']);assert.ok(rows.every(r=>parsePrediction(r.raw,'36码').valid));assert.equal(rows[0].raw,'324期【36码中特】开0000准\n'+first);assert.ok(!rows.some(r=>r.issue==='323'));assert.ok(raw.includes('期【36码中特】开猴47准'));
+ assert.equal(splitPeriods('期【36码中特】开猴47准\n'+other).length,0);assert.equal(splitPeriods('324期号码【01 02 03】\n期待【下期继续】').length,1);
+});
 test('pending and invalid data excluded from rates and denominator',()=>{
  const rows=['win','win','loss','pending','review'].map(status=>({verdict:{status}}));
  const s=statistics(rows);assert.equal(s.settled,3);assert.equal(s.rate,200/3);assert.equal(s.errorRate,100/3);assert.equal(statistics([]).rate,null);
