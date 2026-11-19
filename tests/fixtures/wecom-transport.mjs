@@ -9,10 +9,17 @@ const RealDate=Date;
 if(process.env.QA_CLOCK_FILE){const now=()=>{try{const text=readFileSync(process.env.QA_CLOCK_FILE,'utf8').trim();if(text.startsWith('{')){const clock=JSON.parse(text),base=RealDate.parse(clock.base),started=Number(clock.startedAt);if(Number.isFinite(base)&&Number.isFinite(started))return base+RealDate.now()-started;}const value=RealDate.parse(text);return Number.isFinite(value)?value:RealDate.now();}catch{return RealDate.now();}};globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now()]));}static now(){return now();}};}
 globalThis.fetch=async(input,options)=>{
  const url=new URL(typeof input==='string'?input:input.url||input.href);
+ if(url.hostname==='qa-http-client-entry.example'){
+  if(process.env.QA_FETCH_LOG)appendFileSync(process.env.QA_FETCH_LOG,JSON.stringify({kind:'source-transport',url:url.href})+'\n');
+  return new Response('temporarily unavailable',{status:503});
+ }
  if(url.hostname==='qa-failed-client-entry.example')throw Object.assign(Error('fetch failed'),{cause:{code:'ENOTFOUND'}});
  if(url.hostname==='qa-source-transport.example'){
   if(process.env.QA_FETCH_LOG)appendFileSync(process.env.QA_FETCH_LOG,JSON.stringify({kind:'source-transport',url:url.href})+'\n');
   if(url.pathname==='/certificate')throw Object.assign(Error('fetch failed'),{cause:{code:'CERT_HAS_EXPIRED'}});
+  if(url.pathname==='/server-unavailable'||url.pathname==='/server-once'&&!url.searchParams.has('_period_observer_retry'))return new Response('temporarily unavailable',{status:503});
+  if(url.pathname==='/rate-limited')return new Response('try later',{status:429,headers:{'Retry-After':'3600'}});
+  if(url.pathname==='/denied')return new Response('forbidden',{status:403});
   if(url.pathname==='/timeout'||url.pathname==='/twenty'&&!url.searchParams.has('_period_observer_retry'))throw new DOMException('The operation was aborted due to timeout','TimeoutError');
   return new Response(readFileSync(new URL('file:///'+process.env.QA_DATA_DIR.replaceAll('\\','/')+(url.pathname==='/thirty-six'?'/transport-thirty-six.html':'/transport-twenty.html'))),{headers:{'Content-Type':'text/html; charset=utf-8'}});
  }

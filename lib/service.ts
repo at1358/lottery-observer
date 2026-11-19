@@ -6,7 +6,7 @@ import {resolveNavigationSource} from './source-resolver.mjs';
 import {decodeClientResponse} from './client-document.mjs';
 import {effectivePrediction} from './complete-prediction.mjs';
 import {purgedPeriodKey} from './trash-purge.mjs';
-import {transientSourceError} from './source-transport.mjs';
+import {transientSourceError,sourceHttpError} from './source-transport.mjs';
 import {DEFAULT_SCHEDULE,validateSchedule,effectiveSchedule,nextScheduledRun,estimatedExecution} from './schedule.mjs';
 import {DEFAULT_HISTORY,parseHistory,historyUrl} from './draw-history.mjs';
 import {DEFAULT_DRAW_SCHEDULE,collectionOutcome} from './collection-deadline.mjs';
@@ -61,7 +61,7 @@ async function download(url:string,strictOrigin=false,referer?:string,exposeRedi
  for(let hop=0;hop<5;hop++){
   const response=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(18000),...(transport?{method:'POST',body:transport.body}:{}),headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9','Cache-Control':'no-cache','Referer':referer||u.origin+'/',...(transport?{'Content-Type':'application/x-www-form-urlencoded','Origin':new URL(referer||url).origin}:{})}});
   if(response.status>=300&&response.status<400){const location=response.headers.get('location');if(!location)throw Error('跳转地址为空');const next=checkUrl(new URL(location,u).href);if(exposeRedirect)return {text:'',url:u.href,redirectUrl:next.href,redirectRequest:[307,308].includes(response.status)?transport:undefined};if(strictOrigin&&next.origin!==new URL(url).origin){const error:any=Error('来源对服务器请求返回跨站跳转，已停止本次采集；浏览器可能仍可访问，已有留档资料可以继续复核');error.code='UNRELATED_REDIRECT';throw error;}u=next;continue;}
-  if(!response.ok)throw Error(`来源网站返回 HTTP ${response.status}`);
+  if(!response.ok)throw sourceHttpError(response.status);
   const reader=response.body?.getReader();if(!reader)throw Error('网站没有返回内容');
   const chunks:Uint8Array[]=[];let size=0;
   while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>1200000){await reader.cancel();throw Error('网页超过 1.2 MB，请缩小采集范围或使用接口');}chunks.push(value);}
