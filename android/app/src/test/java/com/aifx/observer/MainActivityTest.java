@@ -2,7 +2,6 @@ package com.aifx.observer;
 
 import android.net.Uri;
 import android.view.View;
-import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
@@ -42,13 +41,9 @@ public class MainActivityTest {
             WebView web = (WebView) ((FrameLayout) activity.findViewById(R.id.web_container)).getChildAt(0);
             String page = "http://8.134.37.202/m?view=sources";
             web.getWebViewClient().onPageStarted(web, page, null);
-            WebResourceError error = new WebResourceError() {
-                @Override public int getErrorCode() { return -2; }
-                @Override public CharSequence getDescription() { return "Network unavailable"; }
-            };
-            web.getWebViewClient().onReceivedError(web, request(false), error);
+            web.getWebViewClient().onReceivedError(web, request(false), null);
             assertEquals(View.GONE, activity.findViewById(R.id.error_panel).getVisibility());
-            web.getWebViewClient().onReceivedError(web, request(true), error);
+            web.getWebViewClient().onReceivedError(web, request(true), null);
             assertEquals(View.VISIBLE, activity.findViewById(R.id.error_panel).getVisibility());
             activity.findViewById(R.id.retry).performClick();
             assertEquals(page, Shadows.shadowOf(web).getLastLoadedUrl());

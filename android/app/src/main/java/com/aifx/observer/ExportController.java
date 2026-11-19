@@ -42,7 +42,7 @@ final class ExportController {
             WebViewCompat.addWebMessageListener(web, "ObserverExport",
                 new HashSet<>(Arrays.asList("http://8.134.37.202", "https://8.134.37.202")),
                 (view, message, origin, mainFrame, reply) -> {
-                    if (!mainFrame || !SitePolicy.isInternal(origin.toString()) || !SitePolicy.isInternal(view.getUrl())) return;
+                    if (closed || !mainFrame || !SitePolicy.isInternal(origin.toString()) || !SitePolicy.isInternal(view.getUrl())) return;
                     String value = message.getData();
                     if (value == null || value.length() > MAX_BLOB * 4 / 3 + 4096) { activity.toast("文件过大，请在浏览器中导出"); return; }
                     try {
@@ -65,7 +65,7 @@ final class ExportController {
                 });
         }
         web.setDownloadListener((url, agent, disposition, contentType, size) -> {
-            if (!SitePolicy.isInternal(web.getUrl()) || busy) return;
+            if (closed || !SitePolicy.isInternal(web.getUrl()) || busy) return;
             String name = SitePolicy.fileName(URLUtil.guessFileName(url, disposition, contentType));
             if (SitePolicy.isInternalBlob(url)) {
                 if (!messageSupport) { activity.toast("请更新 Android System WebView 后导出，或在手机浏览器中打开"); return; }
