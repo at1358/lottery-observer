@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyCostLedger,validateCostSettings,validateCostEntry,buildCostLedger,parseCostNumbers,parseCostBets} from '../lib/cost-ledger.mjs';
+import {emptyCostLedger,validateCostSettings,validateCostEntry,buildCostLedger,parseCostNumbers,parseCostBets,costEntryText} from '../lib/cost-ledger.mjs';
 const entry=(issue,patch={})=>({...validateCostEntry({year:2026,issue,numbers:Array.from({length:20},(_,i)=>i+1),stakePerNumber:'10',odds:'47',...patch}),id:'entry-'+issue,revision:'r-'+issue});
 const doc=(entries,patch={})=>({...emptyCostLedger(),revision:'v1',entries,...patch});
 const draw=(issue,number,year=2026)=>({year,issue:String(issue).padStart(3,'0'),number,zodiac:'马'});
@@ -69,4 +69,14 @@ test('changing a grouped winning stake invalidates the cached basis even with un
  const e=entry(1,{numbers:groupedText}),a=buildCostLedger(doc([e]),[draw(1,42)]),changed=groupedText.replace('42 43各10','42各6\n43各10').replace('20 16 10 40 34各6','20各10\n16 10 40 34各6');
  const b=buildCostLedger(doc([{...e,...validateCostEntry({...e,numbers:changed})}]),[draw(1,42)]);
  assert.deepEqual(a.rows[0].numbers,b.rows[0].numbers);assert.equal(a.rows[0].plannedStakeCents,b.rows[0].plannedStakeCents);assert.notEqual(a.basisKey,b.basisKey);assert.equal(a.rows[0].returnCents,47000);assert.equal(b.rows[0].returnCents,28200);
+});
+test('a new ledger requires no default amount and pasted numbers cannot silently use a default',()=>{
+ const settings=validateCostSettings({initialCapital:'2000',defaultOdds:'47'});assert.equal(settings.initialCapitalCents,200000);assert.equal(settings.defaultStakePerNumber,undefined);assert.equal(emptyCostLedger().defaultStakePerNumber,undefined);
+ assert.equal(parseCostBets(groupedText).plannedStakeCents,14000);assert.throws(()=>parseCostBets('01 02'),/填写号码和金额/);
+});
+test('editing a legacy uniform entry converts to explicit amount text without changing its settlement',()=>{
+ const original=entry(1,{numbers:'01\n02\n03',stakePerNumber:'7.25'}),text=costEntryText(original);
+ assert.equal(text,'01 02 03各7.25');const edited={...original,...validateCostEntry({...original,numbers:text,stakePerNumber:undefined})};
+ assert.deepEqual(edited.numberStakes,original.numberStakes);assert.equal(costEntryText(edited),text);
+ const before=buildCostLedger(doc([original]),[draw(1,2)]),after=buildCostLedger(doc([edited]),[draw(1,2)]);assert.deepEqual(after.stats,before.stats);assert.equal(after.basisKey,before.basisKey);
 });

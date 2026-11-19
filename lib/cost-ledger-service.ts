@@ -27,7 +27,7 @@ export async function saveCostSettings(input:any,actor:any){
  for(let attempt=0;attempt<4;attempt++){
   const row=await documentRow(),old=row?JSON.parse(row.value):emptyCostLedger();if(input.revision!==old.revision)conflict();
   const now=stamp(),next={...old,...value,revision:crypto.randomUUID(),createdAt:old.createdAt||now,updatedAt:now};
-  if(await commit(row,next,row?{key:'costLedgerConfigHistory:'+old.revision,value:{settings:old,changedAt:now,changedBy:actor?.name||actor?.id||null}}:undefined)){await refreshCostLedger('settings');await audit('成本账本设置已保存；默认金额和赔率只应用于以后新录入的记录');return {config:{...next,entries:undefined}};}
+  if(await commit(row,next,row?{key:'costLedgerConfigHistory:'+old.revision,value:{settings:old,changedAt:now,changedBy:actor?.name||actor?.id||null}}:undefined)){await refreshCostLedger('settings');await audit('成本账本设置已保存；默认赔率只应用于以后新录入的记录');return {config:{...next,entries:undefined}};}
  }
  conflict();
 }

@@ -6,7 +6,7 @@ const base=process.env.QA_BASE_URL;if(!/^http:\/\/127\.0\.0\.1:5\d{3}$/.test(bas
 async function api(route,data,status=200){const r=await fetch(base+'/api/'+route,{headers:{cookie,'Content-Type':'application/json'},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})}),v=await r.json();assert.equal(r.status,status,route+':'+JSON.stringify(v));if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return v;}
 writeFileSync(process.env.QA_CLOCK_FILE,'2092-11-08T20:00:00+08:00');await api('auth/login',{username:'qa-admin',password:'Local-only-admin-Password-9276'});const admin=cookie,db=new DatabaseSync(path.join(process.env.QA_DATA_DIR,'observer.sqlite')),get=k=>JSON.parse(db.prepare('SELECT value FROM settings WHERE key=?').get(k)?.value||'null'),originals=db.prepare('SELECT id,raw,first_seen FROM predictions ORDER BY id').all();
 assert.equal((await api('cost-ledger')).initialized,false);assert.equal(get('costLedger'),null);
-let config=(await api('cost-ledger/settings',{revision:null,initialCapital:'2000',defaultStakePerNumber:'10',defaultOdds:'47'})).config;
+let config=(await api('cost-ledger/settings',{revision:null,initialCapital:'2000',defaultOdds:'47'})).config;assert.equal(config.defaultStakePerNumber,undefined);
 await api('cost-ledger/settings',{...config,revision:null},409);
 const form={year:2092,issue:1,numbers:Array.from({length:20},(_,i)=>String(i+1).padStart(2,'0')).join(' '),stakePerNumber:'10',odds:'47',memo:'首次原文'};
 let first=(await api('cost-ledger/entry',form)).entry,state=await api('cost-ledger');assert.equal(state.stats.balanceCents,200000);assert.equal(state.rows[0].status,'pending');assert.equal(state.rows[0].plannedStakeCents,20000);
@@ -32,7 +32,7 @@ assert.ok((await api('backup')).tables.settings.some(r=>r.key==='costLedger'));a
 for(const route of ['/?view=cost-ledger','/m?view=cost-ledger']){const r=await fetch(base+route,{headers:{cookie}});assert.equal(r.status,200);assert.match(await r.text(),/成本计算/);}
 await api('auth/login',{username:'qa-operator',password:'Local-only-operator-Password-9276'});await api('cost-ledger/entry',{...form,issue:4});await api('auth/login',{username:'qa-viewer',password:'Reset-local-only-password-9276'});assert.equal((await api('cost-ledger')).count,4);await api('cost-ledger/entry',{...form,issue:5},403);await api('cost-ledger/settings',config,403);await api('cost-ledger/recalculate',{},403);cookie=admin;
 const groupedText='12 13 19各15\n42 43各10\n20 16 10 40 34各6\n38 49 48 37 36 33 04 08 46各5';
-let grouped=(await api('cost-ledger/entry',{...form,issue:6,numbers:groupedText,stakePerNumber:'999',numberStakes:[{number:12,stakeCents:999999}]})).entry;
+let grouped=(await api('cost-ledger/entry',{...form,issue:6,numbers:groupedText,stakePerNumber:undefined,numberStakes:[{number:12,stakeCents:999999}]})).entry;
 state=await api('cost-ledger');assert.equal(state.stats.balanceCents,366000);assert.equal(state.rows.find(r=>r.id===grouped.id).plannedStakeCents,14000);assert.equal(grouped.numbers.length,19);
 for(const [number,returned,profit] of [[12,70500,56500],[42,47000,33000],[20,28200,14200],[38,23500,9500],[1,0,-14000]]){
  await draw(6,number);state=await api('cost-ledger');const row=state.rows.find(r=>r.id===grouped.id);assert.equal(row.returnCents,returned);assert.equal(state.stats.balanceCents,366000+profit);
@@ -41,6 +41,7 @@ await draw(6,42);const changed=groupedText.replace('42 43各10','42各6\n43各10
 grouped=(await api('cost-ledger/entry',{...grouped,numbers:changed})).entry;state=await api('cost-ledger');assert.equal(state.stats.balanceCents,380200);assert.equal(grouped.modifiedAfterDraw,true);assert.equal((await api('cost-ledger?history='+grouped.id)).history[0].entry.rawText,groupedText);
 await api('cost-ledger/recalculate',{});assert.equal((await api('cost-ledger')).stats.balanceCents,380200);
 for(const numbers of ['01各10\n01各5','01各0','01各10\n02'])await api('cost-ledger/entry',{...form,issue:7,numbers},400);
+await api('cost-ledger/entry',{...form,issue:7,numbers:'01 02',stakePerNumber:undefined},400);
 await api('cost-ledger/void',{id:grouped.id,revision:grouped.revision,voided:true});state=await api('cost-ledger');assert.equal(state.stats.balanceCents,366000);grouped=state.rows.find(r=>r.id===grouped.id);
 await api('cost-ledger/void',{id:grouped.id,revision:grouped.revision,voided:false});assert.equal((await api('cost-ledger')).stats.balanceCents,380200);
 assert.deepEqual(db.prepare('SELECT id,raw,first_seen FROM predictions ORDER BY id').all(),originals);
