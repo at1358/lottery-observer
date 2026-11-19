@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
-import {Menu,LayoutDashboard,Files,Calculator,BarChart3} from 'lucide-react';
+import {Menu,Globe2,FilePlus2,Calculator,BarChart3} from 'lucide-react';
 
 export function workspaceHref(path:string){
  const mobile=typeof window!=='undefined'&&/^\/m(?:\/|$)/.test(window.location.pathname);
@@ -35,7 +35,7 @@ export function useMobileMenu(){
 
 export function MobileBottomNavigation({view,onNavigate,onMenu}:{view:string,onNavigate:(view:string)=>void,onMenu:()=>void}){
  return <nav className="mobile-bottom-nav" aria-label="手机常用导航">
-  {([['overview','总览',LayoutDashboard],['archive','资料',Files],['combinations','组合',Calculator],['ranking','排行',BarChart3]] as const).map(([key,label,Icon])=><button key={key} aria-current={view===key||key==='combinations'&&view==='quick-combinations'?'page':undefined} onClick={()=>onNavigate(key)}><Icon size={20}/><span>{label}</span></button>)}
+  {([['sources','数据源管理',Globe2],['self-materials','自建资料',FilePlus2],['combinations','组合',Calculator],['ranking','排行',BarChart3]] as const).map(([key,label,Icon])=><button key={key} aria-current={view===key||key==='combinations'&&view==='quick-combinations'?'page':undefined} onClick={()=>onNavigate(key)}><Icon size={20}/><span>{label}</span></button>)}
   <button onClick={onMenu} aria-label="打开更多工作台菜单"><Menu size={20}/><span>更多</span></button>
  </nav>;
 }
