@@ -136,6 +136,7 @@ class HelperTests(unittest.TestCase):
         support.templates("127.0.0.1", 3000, "", "", self.root)
         text = (self.root / "period-observer.conf").read_text()
         self.assertNotIn("ssl_certificate", text)
+        self.assertNotIn("return 301", text)
 
     def test_android_downloads_have_a_separate_read_only_static_root(self):
         support.templates("observer.example.com", 3000, "", "", self.root)
@@ -145,7 +146,6 @@ class HelperTests(unittest.TestCase):
         self.assertIn("autoindex off;", text)
         self.assertIn("limit_except GET HEAD { deny all; }", text)
         self.assertIn("proxy_pass http://127.0.0.1:3000;", text)
-        self.assertNotIn("return 301", text)
 
     def test_phone_routing_is_limited_to_safe_page_requests_and_preserves_queries(self):
         support.templates("observer.example.com", 3000, "", "", self.root)

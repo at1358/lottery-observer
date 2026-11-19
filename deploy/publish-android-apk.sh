@@ -52,3 +52,17 @@ except Exception:
  config.write_bytes(original);subprocess.run(['nginx','-t'],check=False);raise
 print('DOWNLOAD_LOCATION_ENABLED')
 PY
+python3 - "$2" "$3" <<'PY'
+import hashlib,re,sys,time,urllib.request
+from pathlib import Path
+host=re.search(r'server_name\s+([^;\s]+)',Path('/etc/nginx/conf.d/period-observer.conf').read_text()).group(1)
+url='http://127.0.0.1/app-downloads/PeriodObserver-'+sys.argv[2]+'.apk'
+for attempt in range(30):
+ try:
+  with urllib.request.urlopen(urllib.request.Request(url,headers={'Host':host}),timeout=10) as r:
+   if hashlib.sha256(r.read()).hexdigest()==sys.argv[1]:print('DOWNLOAD_READY');break
+ except Exception:
+  pass
+ time.sleep(.2)
+else:raise RuntimeError('Nginx download readiness check did not pass')
+PY
