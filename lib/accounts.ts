@@ -3,6 +3,7 @@ import {headers} from 'next/headers';
 import {getChatGPTUser} from '../app/chatgpt-auth';
 import {list,run,db,stmt} from './db';
 import {hashPassword,verifyPassword,digest,equal,passwordPolicy} from './password.mjs';
+import {sessionLifetime} from './session-policy.mjs';
 const stamp=()=>new Date().toISOString();
 const config=env as any;
 export const standalone=()=>config.AUTH_MODE==='standalone';
@@ -16,8 +17,8 @@ export async function principal(){
 }
 export async function requirePrincipal(write=false,admin=false){const u=await principal();if(!u)forbidden('请先登录',401);if(admin&&u.role!=='admin'||write&&u.role==='viewer')forbidden();return u;}
 function fields(input:any){const username=String(input.username||'').trim().toLowerCase(),name=String(input.name||'').trim();if(!/^[a-z0-9][a-z0-9_.@-]{2,63}$/.test(username))throw Error('用户名须为 3–64 位字母、数字或 _ . @ -');if(!name||name.length>60)throw Error('请填写 1–60 位用户姓名');return {username,name};}
-async function session(user:any,request:Request){const token=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');await run('INSERT INTO app_sessions(token_hash,user_id,created_at,expires_at) VALUES(?,?,?,?)',await digest(token),user.id,stamp(),new Date(Date.now()+12*3600000).toISOString());await run('DELETE FROM app_sessions WHERE expires_at<?',stamp());return {user:{id:user.id,username:user.username,name:user.name,role:user.role},cookie:cookie(token,request)};}
-function cookie(token:string,request:Request){return `observer_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${token?43200:0}${new URL(request.url).protocol==='https:'?'; Secure':''}`;}
+async function session(user:any,request:Request){const token=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');await run('INSERT INTO app_sessions(token_hash,user_id,created_at,expires_at) VALUES(?,?,?,?)',await digest(token),user.id,stamp(),new Date(Date.now()+sessionLifetime(request.headers.get('user-agent')||'')*1000).toISOString());await run('DELETE FROM app_sessions WHERE expires_at<?',stamp());return {user:{id:user.id,username:user.username,name:user.name,role:user.role},cookie:cookie(token,request)};}
+function cookie(token:string,request:Request){return `observer_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${token?sessionLifetime(request.headers.get('user-agent')||''):0}${new URL(request.url).protocol==='https:'?'; Secure':''}`;}
 export async function bootstrap(input:any,request:Request){
  if((await accountState()).initialized)forbidden('主管理员账号已经创建');
  if(standalone()){if(!config.BOOTSTRAP_ADMIN_TOKEN||!equal(String(input.bootstrapToken||''),config.BOOTSTRAP_ADMIN_TOKEN))forbidden('首次初始化凭证不正确');}else await requirePrincipal(false,true);

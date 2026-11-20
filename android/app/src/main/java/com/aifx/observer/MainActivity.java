@@ -37,8 +37,9 @@ import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import java.util.ArrayList;
+import androidx.fragment.app.FragmentActivity;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends FragmentActivity {
     private static final int PICK_FILE = 1101;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<WebView> popups = new ArrayList<>();
@@ -48,6 +49,8 @@ public final class MainActivity extends Activity {
     private ProgressBar progress;
     private TextView errorText;
     private ExportController exports;
+    private AppLockController appLock;
+    private UpdateController updates;
     private ValueCallback<Uri[]> fileCallback;
     private OnBackInvokedCallback backCallback;
     private String lastUrl = BuildConfig.HOME_URL;
@@ -86,6 +89,8 @@ public final class MainActivity extends Activity {
             if (state != null && web.restoreState(state) != null && SitePolicy.isInternal(web.getUrl())) lastUrl = web.getUrl();
             else load(BuildConfig.HOME_URL);
         }
+        appLock = new AppLockController(this);
+        updates = new UpdateController(this);
     }
 
     // React needs JavaScript. File access and native JavascriptInterface bridges
@@ -153,12 +158,15 @@ public final class MainActivity extends Activity {
         catch (ActivityNotFoundException ignored) { toast("未找到可用的手机浏览器"); }
     }
     private void menu(View anchor) {
+        if (appLocked()) return;
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add(0, 1, 0, "返回首页");
         menu.getMenu().add(0, 2, 1, "刷新页面");
         menu.getMenu().add(0, 3, 2, "在浏览器中打开");
         menu.getMenu().add(0, 4, 3, "清除本机登录状态");
         menu.getMenu().add(0, 5, 4, "关于应用");
+        menu.getMenu().add(0, 6, 3, appLock.enabled() ? "关闭指纹登录" : "启用指纹登录");
+        menu.getMenu().add(0, 7, 4, "检查应用更新");
         menu.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
                 case 1: load(BuildConfig.HOME_URL); break;
@@ -167,17 +175,13 @@ public final class MainActivity extends Activity {
                 case 4: new AlertDialog.Builder(this).setTitle("清除本机登录状态？")
                     .setMessage("需要重新输入网站账号密码。服务器上的资料、计算结果和定时任务不受影响。")
                     .setNegativeButton("取消", null).setPositiveButton("清除并重新登录", (dialog, which) -> {
-                        if (web != null) web.stopLoading();
-                        CookieManager.getInstance().removeAllCookies(done -> {
-                            CookieManager.getInstance().flush();
-                            WebStorage.getInstance().deleteAllData();
-                            if (web != null) { web.clearCache(true); web.clearHistory(); }
-                            load(BuildConfig.HOME_URL);
-                        });
+                        clearLogin();
                     }).show(); break;
                 case 5: new AlertDialog.Builder(this).setTitle(getString(R.string.app_name) + " " + BuildConfig.VERSION_NAME)
-                    .setMessage("连接服务器：8.134.37.202\n使用网站原有账号和权限。网页功能更新后，重新打开即可使用。\n\n当前连接为 HTTP，登录传输未加密。")
+                    .setMessage("连接服务器：8.134.37.202\n登录最长保留90天，改密、停用账号或退出后需重新登录。\n支持指纹解锁和服务器版本更新。网页功能更新后，重新打开即可使用。\n\n当前连接为 HTTP，登录传输未加密。")
                     .setPositiveButton("知道了", null).show(); break;
+                case 6: appLock.toggle(); break;
+                case 7: updates.check(true); break;
                 default: return false;
             }
             return true;
@@ -185,6 +189,7 @@ public final class MainActivity extends Activity {
         menu.show();
     }
     private void back() {
+        if (appLocked()) { finish(); return; }
         if (web != null && web.canGoBack()) { web.goBack(); return; }
         long now = SystemClock.elapsedRealtime();
         if (lastBack != 0 && now - lastBack < 2000) finish();
@@ -195,6 +200,17 @@ public final class MainActivity extends Activity {
     @SuppressLint("GestureBackNavigation")
     @SuppressWarnings("deprecation") @Override public void onBackPressed() { back(); }
     void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_LONG).show(); }
+    boolean appLocked() { return appLock != null && appLock.isLocked(); }
+    void unlocked() { if (updates != null) handler.postDelayed(() -> updates.check(false), 500); }
+    void clearLogin() {
+        appLock.reset();
+        if (web != null) web.stopLoading();
+        CookieManager.getInstance().removeAllCookies(done -> {
+            CookieManager.getInstance().flush(); WebStorage.getInstance().deleteAllData();
+            if (web != null) { web.clearCache(true); web.clearHistory(); }
+            load(BuildConfig.HOME_URL);
+        });
+    }
 
     private final class SiteClient extends WebViewClient {
         @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -275,12 +291,16 @@ public final class MainActivity extends Activity {
             }
             fileCallback.onReceiveValue(selected); fileCallback = null;
         } else if (request == ExportController.SAVE_FILE) exports.saveResult(result, data);
+        else if (request == UpdateController.INSTALL_PERMISSION) updates.permissionResult();
     }
     @Override protected void onSaveInstanceState(Bundle out) { if (web != null) web.saveState(out); super.onSaveInstanceState(out); }
-    @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); }
-    @Override protected void onPause() { if (web != null) web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
+    @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); if (focused && updates != null) updates.resume(); }
+    @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); if (appLock != null) appLock.resume(); if (updates != null) handler.postDelayed(() -> updates.check(false), 2000); }
+    @Override protected void onPause() { if (appLock != null) appLock.pause(); if (web != null) web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
     @Override protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        if (appLock != null) appLock.close();
+        if (updates != null) updates.close();
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null) getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
         if (fileCallback != null) fileCallback.onReceiveValue(null);
         for (WebView popup : popups) popup.destroy(); popups.clear();
