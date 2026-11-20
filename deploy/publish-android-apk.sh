@@ -17,7 +17,7 @@ root=Path('/var/www/period-observer-app');root.mkdir(parents=True,exist_ok=True)
 assert not root.is_symlink(),'Download root must be a real directory'
 latest=root/'latest.json'
 if latest.exists():
- old=json.loads(latest.read_text());assert old['versionCode']<=code,'Cannot publish an older release'
+ old=json.loads(latest.read_text(encoding='utf-8'));assert old['versionCode']<=code,'Cannot publish an older release'
  if old['versionCode']==code:assert old['sha256']==digest and old['versionName']==version,'Version code already published; increase app version'
 name=f'PeriodObserver-{version}.apk';target=root/name
 if target.exists():assert hashlib.sha256(target.read_bytes()).hexdigest()==digest,'Existing version differs; increase the app version'
@@ -32,7 +32,7 @@ page='''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="view
 manifest={'versionCode':code,'versionName':version,'packageName':'com.aifx.observer','url':'http://8.134.37.202/app-downloads/'+name,'sha256':digest,'size':source.stat().st_size,'notes':'新增90天保持登录、可选指纹解锁、服务器更新检查，升级蓝白主题图标。'}
 fd,temp=tempfile.mkstemp(prefix='.release-',dir=root);os.close(fd)
 try:
- Path(temp).write_text(json.dumps(manifest,ensure_ascii=False));os.chmod(temp,0o644);os.replace(temp,latest)
+ Path(temp).write_text(json.dumps(manifest,ensure_ascii=False),encoding='utf-8');os.chmod(temp,0o644);os.replace(temp,latest)
 finally:
  if os.path.exists(temp):os.unlink(temp)
 print('APK_PUBLISHED',name,digest)

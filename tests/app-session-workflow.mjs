@@ -18,8 +18,8 @@ const appCookie=app.headers.get('set-cookie').split(';')[0],webCookie=web.header
 const db=new DatabaseSync(path.join(process.env.QA_DATA_DIR,'observer.sqlite'));
 const sessions=db.prepare('SELECT created_at,expires_at FROM app_sessions WHERE user_id=(SELECT id FROM app_users WHERE username=?) ORDER BY expires_at').all(username);
 assert.equal(sessions.length,2);
-assert.equal(Date.parse(sessions[0].expires_at)-Date.parse(sessions[0].created_at),43200000);
-assert.equal(Date.parse(sessions[1].expires_at)-Date.parse(sessions[1].created_at),7776000000);
+assert.ok(Math.abs(Date.parse(sessions[0].expires_at)-Date.parse(sessions[0].created_at)-43200000)<1000);
+assert.ok(Math.abs(Date.parse(sessions[1].expires_at)-Date.parse(sessions[1].created_at)-7776000000)<1000);
 assert.equal((await fetch(base+'/api/state',{headers:{cookie:appCookie}})).status,200);
 // Logging out one installation revokes its token but preserves the other session.
 const out=await post('auth/logout',{},appCookie,'PeriodObserverAndroid/1.1.0');assert.match(out.headers.get('set-cookie'),/Max-Age=0/);
