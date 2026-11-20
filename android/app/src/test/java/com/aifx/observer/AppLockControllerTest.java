@@ -3,7 +3,7 @@ package com.aifx.observer;
 import android.content.Context;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
-import androidx.test.core.app.ApplicationProvider;
+import org.robolectric.RuntimeEnvironment;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -16,7 +16,7 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class) @Config(sdk = 35)
 public class AppLockControllerTest {
     @Before public void reset() {
-        Context context = ApplicationProvider.getApplicationContext();
+        Context context = RuntimeEnvironment.getApplication();
         context.getSharedPreferences("app-security", 0).edit().clear().commit();
         CookieManager.getInstance().removeAllCookies(null);
     }
@@ -26,7 +26,7 @@ public class AppLockControllerTest {
         }
     }
     @Test public void savedSessionWithBiometricEnabledStartsCoveredAndCanBeCleared() {
-        Context context = ApplicationProvider.getApplicationContext();
+        Context context = RuntimeEnvironment.getApplication();
         context.getSharedPreferences("app-security", 0).edit().putBoolean("biometric", true).commit();
         CookieManager.getInstance().setCookie(BuildConfig.HOME_URL, "observer_session=" + "a".repeat(64) + "; Path=/; Max-Age=7776000");
         assertTrue(AppLockController.hasSession());

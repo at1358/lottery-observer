@@ -108,8 +108,11 @@ final class UpdateController {
             || version(candidate) != item.code || !item.version.equals(candidate.versionName) || version(candidate) <= BuildConfig.VERSION_CODE)
             throw new IllegalArgumentException("Wrong package or version");
         Signature[] installed = signatures(current), incoming = signatures(candidate);
-        if (installed == null || incoming == null || installed.length != 1 || incoming.length != 1
-            || !MessageDigest.isEqual(installed[0].toByteArray(), incoming[0].toByteArray())) throw new IllegalArgumentException("Wrong signing certificate");
+        if (!sameSigner(installed, incoming)) throw new IllegalArgumentException("Wrong signing certificate");
+    }
+    static boolean sameSigner(Signature[] installed, Signature[] incoming) {
+        return installed != null && incoming != null && installed.length == 1 && incoming.length == 1
+            && installed[0] != null && incoming[0] != null && MessageDigest.isEqual(installed[0].toByteArray(), incoming[0].toByteArray());
     }
     @SuppressWarnings("deprecation")
     private static Signature[] signatures(PackageInfo info) {

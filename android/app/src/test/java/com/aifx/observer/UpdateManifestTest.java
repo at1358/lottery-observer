@@ -1,6 +1,7 @@
 package com.aifx.observer;
 
 import org.json.JSONObject;
+import android.content.pm.Signature;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -25,6 +26,15 @@ public class UpdateManifestTest {
         reject(valid().put("packageName", "com.other.app")); reject(valid().put("sha256", "bad"));
         reject(valid().put("size", 200000000)); reject(valid().put("size", 1)); reject(valid().put("versionCode", 0));
         reject(valid().put("versionName", "1.3.0"));
+    }
+    @Test public void onlyTheExistingApplicationSigningCertificateCanUpdateThisApp() {
+        Signature key = new Signature(new byte[]{1, 2, 3}), other = new Signature(new byte[]{1, 2, 4});
+        assertTrue(UpdateController.sameSigner(new Signature[]{key}, new Signature[]{new Signature(new byte[]{1, 2, 3})}));
+        assertFalse(UpdateController.sameSigner(new Signature[]{key}, new Signature[]{other}));
+        assertFalse(UpdateController.sameSigner(new Signature[]{key}, null));
+        assertFalse(UpdateController.sameSigner(null, new Signature[]{key}));
+        assertFalse(UpdateController.sameSigner(new Signature[]{key}, new Signature[]{key, other}));
+        assertFalse(UpdateController.sameSigner(new Signature[]{key}, new Signature[]{null}));
     }
     private void reject(JSONObject value) throws Exception {
         try { new UpdateManifest(value.toString()); fail("Invalid release accepted: " + value); }
