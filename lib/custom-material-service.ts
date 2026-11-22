@@ -2,14 +2,16 @@ import {list,run,db,stmt} from './db';
 import {isManualMaterial,validateCustomMaterial,buildCustomMaterial,annualPeriods,customMaterialLabel,materialRuleKey,customMaterialStats} from './custom-material.mjs';
 import {periodZodiacResolver} from './period-zodiacs.mjs';
 import {customMaterialSchedulePlan} from './custom-material-schedule.mjs';
+import {probabilityForecastState} from './probability-forecast-service';
 const planKey=(id:string)=>'customMaterialPlan:'+id,rowsKey=(id:string)=>'customMaterialRows:'+id;
 const stamp=()=>new Date().toISOString();
 async function setting(key:string,fallback:any=null){const [row]=await list('SELECT value FROM settings WHERE key=?',key);return row?JSON.parse(row.value):fallback;}
 async function put(key:string,value:any){await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,JSON.stringify(value));}
 async function find(id:string){if(!/^[a-f0-9-]{36}$/.test(id||''))throw Error('自建栏目编号无效');const plan=await setting(planKey(id));if(!plan)throw Error('该自建栏目不存在');return plan;}
-export async function customMaterialSummaries(){
+export async function customMaterialSummaries(includeForecast=false){
  const rows=await list("SELECT p.value AS plan,json_extract(r.value,'$.stats') AS stats,CASE WHEN json_type(r.value,'$.stats.latestWin') IS NULL THEN json_extract(r.value,'$.rows') END AS legacyRows,json_extract(r.value,'$.lastCheckedAt') AS checked FROM settings p LEFT JOIN settings r ON r.key='customMaterialRows:'||substr(p.key,length('customMaterialPlan:')+1) WHERE p.key LIKE 'customMaterialPlan:%' ORDER BY json_extract(p.value,'$.lag'),json_extract(p.value,'$.year') DESC,json_extract(p.value,'$.createdAt')");
- return rows.map(r=>{const plan=JSON.parse(r.plan),stats=r.stats?JSON.parse(r.stats):null;if(stats&&stats.latestWin===undefined)stats.latestWin=customMaterialStats(JSON.parse(r.legacyRows||'[]')).latestWin;return {...plan,sourceText:undefined,records:undefined,issueCorrections:undefined,unparsed:undefined,displayName:customMaterialLabel(plan,stats),stats,lastCheckedAt:r.checked||null};});
+ const forecast=includeForecast?await probabilityForecastState():null;
+ return rows.map(r=>{const plan=JSON.parse(r.plan),stats=r.stats?JSON.parse(r.stats):null;if(stats&&stats.latestWin===undefined)stats.latestWin=customMaterialStats(JSON.parse(r.legacyRows||'[]')).latestWin;return {...plan,sourceText:undefined,records:undefined,issueCorrections:undefined,unparsed:undefined,displayName:customMaterialLabel(plan,stats),stats,lastCheckedAt:r.checked||null,...(forecast?{probabilityForecast:forecast.forItem(plan,'custom')}: {})};});
 }
 export async function customMaterialRankingData(){
  const rows=await list("SELECT p.value AS plan,r.value AS records FROM settings p LEFT JOIN settings r ON r.key='customMaterialRows:'||substr(p.key,length('customMaterialPlan:')+1) WHERE p.key LIKE 'customMaterialPlan:%'");
@@ -74,14 +76,14 @@ export async function saveCustomMaterial(input:any){
  return {plan,stats:result.stats};
 }
 export async function readCustomMaterials(params=new URLSearchParams()){
- const items=await customMaterialSummaries(),automation=await customMaterialAutomation(),id=params.get('material');if(!id)return {items,automation};
+ const items=await customMaterialSummaries(true),automation=await customMaterialAutomation(),forecastAutomation=(await probabilityForecastState()).automation,id=params.get('material');if(!id)return {items,automation,forecastAutomation};
  const plan=await find(id),stored=await setting(rowsKey(id),{rows:[],stats:null,lastCheckedAt:null});
  if(stored.stats&&stored.stats.latestWin===undefined)stored.stats.latestWin=customMaterialStats(stored.rows).latestWin;
  const status=params.get('status')||'',from=params.get('from')||'',to=params.get('to')||'',page=Math.max(1,Math.floor(Number(params.get('page'))||1)),pageSize=25;
  if(status&&!['win','loss','pending','review'].includes(status))throw Error('核验筛选无效');
  for(const v of [from,to])if(v&&(!/^\d{1,3}$/.test(v)||+v<1||+v>366))throw Error('筛选期数应为1–366');if(from&&to&&+from>+to)throw Error('开始期数不能大于结束期数');
  const filtered=stored.rows.filter((r:any)=>(!status||r.status===status)&&(!from||+r.issue>=+from)&&(!to||+r.issue<=+to));
- return {items,automation,plan:{...plan,records:undefined},displayName:customMaterialLabel(plan,stored.stats),stats:stored.stats,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,lastCheckedAt:stored.lastCheckedAt};
+ return {items,automation,forecastAutomation,probabilityForecast:items.find(p=>p.id===id)?.probabilityForecast,plan:{...plan,records:undefined},displayName:customMaterialLabel(plan,stored.stats),stats:stored.stats,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,lastCheckedAt:stored.lastCheckedAt};
 }
 export async function customCombinationData(ids:string[],year:number){
  const materials=[],records=[];const profile=await setting('numberReference:'+year),draws=await list('SELECT * FROM draws WHERE year BETWEEN ? AND ?',year-2,year),expected=await setting('expectedDrawPeriods',{}),resolveZodiacs=periodZodiacResolver(year,profile,draws,Object.values(expected));

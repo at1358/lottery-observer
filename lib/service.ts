@@ -26,6 +26,7 @@ import {scheduledSimulations} from './simulation-service';
 import {collectionWindowOpen,nextSourceCollection,nextCollectionDay} from './collection-retry.mjs';
 import {validateSourceScheduleBatch} from './source-schedules.mjs';
 import {scheduledSourceAlerts} from './source-alert-service';
+import {refreshProbabilityForecasts,probabilityForecastState} from './probability-forecast-service';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const plannedLabel=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'（北京时间）';
@@ -298,6 +299,7 @@ export async function tick(){
  const stamp=now();let success=0,failed=0;
  const drawResult:any=await scheduledDrawUpdate();if(!drawResult.skipped){success+=drawResult.errors.length?0:1;failed+=drawResult.errors.length;}
  const customMaterials=await scheduledCustomMaterials();if(!customMaterials.skipped){success+=customMaterials.checked||0;failed+=customMaterials.failed||0;}
+ const probabilityForecasts=await refreshProbabilityForecasts();success+=probabilityForecasts.calculated||0;failed+=probabilityForecasts.failed||0;
  await refreshPendingPush(dailyDrawUpdate);
  const pushResult:any=await sendLatestDraw();if(pushResult.sent)success++;if(pushResult.failed)failed++;
  await finalizeCollections();
@@ -321,7 +323,7 @@ export async function tick(){
  const pending=collectionSchedule.enabled===false?0:remaining.count;
  await putSetting('scheduler',{lastRun:now(),success,failed,remaining:pending});
  await log('定时检查',failed?'error':'success',collectionSchedule.enabled===false?'全站自动采集已暂停；开奖同步按原设置运行':`本批检查完成：成功 ${success}，失败 ${failed}，剩余到期栏目 ${pending}`,success);
- return {success,failed,remaining:pending,push:pushResult,combinations,customMaterials,simulations,sourceAlerts,costLedger};
+ return {success,failed,remaining:pending,push:pushResult,combinations,customMaterials,simulations,sourceAlerts,costLedger,probabilityForecasts};
 }
 export async function recheckResults(input:any={}){
  const query=new URLSearchParams();let name='全部采集资料';
@@ -349,13 +351,16 @@ export async function state(query:URLSearchParams){
  if(query.get('changes')==='after_draw')filtered=filtered.filter(p=>!!p.retroactive);if(query.get('changes')==='any')filtered=filtered.filter(p=>p.latest_version>0);
  if(query.get('cohort')==='forward')filtered=filtered.filter(p=>!p.backtest);if(query.get('cohort')==='backtest')filtered=filtered.filter(p=>p.backtest);
  const stats=statistics(filtered);const ranking=sources.map(s=>({...s,stats:statistics(filtered.filter(p=>p.source_id===s.id))})).filter(s=>s.stats.total>0).sort((a,b)=>(b.stats.rate??-1)-(a.stats.rate??-1));if(query.get('status'))filtered=filtered.filter(p=>p.verdict.status===query.get('status'));
- const rank=sources.map(s=>({...s,stats:statistics(all.filter(p=>p.source_id===s.id))}));
+ const forecasts=['sources','ranking'].includes(query.get('view')||'')?await probabilityForecastState():null;
+ if(forecasts)for(const item of ranking)Object.assign(item,{probabilityForecast:forecasts.forItem(item,'collected')});
+ const rank=sources.map(s=>({...s,stats:statistics(all.filter(p=>p.source_id===s.id)),...(forecasts?{probabilityForecast:forecasts.forItem(s,'collected')}:{})}));
  const page=Math.max(1,+query.get('page')!||1),pageSize=25;
  const issues=[...new Set(filtered.map(p=>p.year+'-'+p.issue))].sort().slice(-60);
  const trend=issues.map(issue=>({issue,...statistics(filtered.filter(p=>p.year+'-'+p.issue===issue))}));
  const nextCollection=sources.filter(s=>s.enabled&&s.next_run).map(s=>s.next_run).sort()[0]||null;
  const rankingSummary=query.get('view')==='ranking'?buildRankingSummary({sources,predictions:all,materials:await customMaterialRankingData(),draws,expected:await getSetting('expectedDrawPeriods',{}),year:query.get('year')||'',selection:await getSetting('rankingSummarySelection',{})}):undefined;
- return {runtime:(env as any).AUTH_MODE==='standalone'?'standalone':'sites',customMaterials:await customMaterialSummaries(),rankingSummary,overviewDisplay:await getSetting('overviewDisplay',{range:20,chart:'area',showLoss:true}),folders:await listFolders(),trash:await trashList(),sources:rank,ranking,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,stats,global:statistics(all),draws,jobs,rules,drawSource,drawSync,scheduler,trend,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,scheduleInfo:{nextRun:nextCollection,estimatedRun:nextCollection?estimatedExecution(nextCollection,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'):null,nextCheck:estimatedExecution(now(),Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')}};
+ if(rankingSummary&&forecasts){const customs=new Map((await customMaterialSummaries(true)).map(p=>[p.id,p]));for(const group of rankingSummary.groups)for(const row of group.rows)Object.assign(row,{probabilityForecast:row.origin==='custom'?customs.get(row.id)?.probabilityForecast:rank.find(s=>s.id===row.id)?.probabilityForecast});Object.assign(rankingSummary,{forecastAutomation:forecasts.automation});}
+ return {forecastAutomation:forecasts?.automation,runtime:(env as any).AUTH_MODE==='standalone'?'standalone':'sites',customMaterials:await customMaterialSummaries(),rankingSummary,overviewDisplay:await getSetting('overviewDisplay',{range:20,chart:'area',showLoss:true}),folders:await listFolders(),trash:await trashList(),sources:rank,ranking,rows:filtered.slice((page-1)*pageSize,page*pageSize),count:filtered.length,page,pageSize,stats,global:statistics(all),draws,jobs,rules,drawSource,drawSync,scheduler,trend,collectionSchedule,historySource,historySync,drawSchedule,drawScheduleState,scheduleInfo:{nextRun:nextCollection,estimatedRun:nextCollection?estimatedExecution(nextCollection,Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites'):null,nextCheck:estimatedExecution(now(),Date.now(),(env as any).AUTH_MODE==='standalone'?'standalone':'sites')}};
 }
 export async function revise(predictionId:string,raw:string,kind:string){
  await finalizeCollections();

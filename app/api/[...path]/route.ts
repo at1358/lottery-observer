@@ -1,6 +1,7 @@
 import {costLedgerState,saveCostSettings,saveCostEntry,voidCostEntry,refreshCostLedger} from '../../../lib/cost-ledger-service';
 import {deletePlan} from '../../../lib/plan-lifecycle';
 import {saveRankingSelection} from '../../../lib/ranking-selection-service';
+import {refreshProbabilityForecasts} from '../../../lib/probability-forecast-service';
 import {getChatGPTUser} from '../../chatgpt-auth';
 import * as svc from '../../../lib/service';
 import * as account from '../../../lib/accounts';
@@ -57,6 +58,7 @@ async function handle(request:Request,context:any){
    case 'account/password':result=await account.changePassword(body);break;
    case 'sources/delete':result=await manage.deleteSources(body);break;
    case 'ranking/selection':result=await saveRankingSelection(body);break;
+   case 'probability-forecasts/refresh':result=await refreshProbabilityForecasts(true);break;
    case 'sources/schedule':result=await svc.saveSourceSchedules(body);break;
    case 'sources/crawl':result=await svc.crawlBatchSource(body);break;
    case 'records/delete':result=await manage.deleteRecords(body);break;
@@ -112,6 +114,7 @@ async function handle(request:Request,context:any){
     else if(body.operation==='configureCustomMaterial')result=await saveCustomMaterial(body.value);
     else if(body.operation==='configureCustomMaterialSchedule')result=await saveCustomMaterialSchedule(body.value);
     else if(body.operation==='runCustomMaterialUpdate')result=await scheduledCustomMaterials();
+    else if(body.operation==='runProbabilityForecasts')result=await refreshProbabilityForecasts();
     else if(body.operation==='simulations')result=await readSimulations(new URLSearchParams(body.query||{}));
     else if(body.operation==='refreshSimulation'){const r=await refreshSimulation(body.id,'repair');result={stats:r.stats,lastCheckedAt:r.lastCheckedAt};}
     else if(body.operation==='recalculateCombination')result=await recalculateCombinationHistory(body);
